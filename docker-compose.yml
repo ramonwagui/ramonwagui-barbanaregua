@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: barbanaregua-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: barbanaregua
+      POSTGRES_PASSWORD: barbanaregua123
+      POSTGRES_DB: barbanaregua
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
