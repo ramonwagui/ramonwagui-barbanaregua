@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { updateTenantSettings } from "@/lib/actions"
 import { Check, Upload, Trash2, ImageIcon } from "lucide-react"
 
@@ -24,6 +25,7 @@ export default function ConfiguracoesClient({
   tenant: TenantData
   isOwner: boolean
 }) {
+  const router = useRouter()
   const [form, setForm] = useState(initial)
   const [isPending, startTransition] = useTransition()
   const [saved, setSaved] = useState(false)
@@ -58,7 +60,9 @@ export default function ConfiguracoesClient({
       })
       const data = await res.json()
       if (res.ok) {
-        setLogoUrl(data.logoUrl + "?t=" + Date.now())
+        setLogoUrl(data.logoUrl)
+        // Recarrega a página para atualizar o logo em todos os lugares
+        router.refresh()
       } else {
         setLogoError(data.error ?? "Erro ao enviar imagem")
       }
