@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   }
 
   const ext = file.type.split("/")[1].replace("jpeg", "jpg")
-  const key = `platform/logo.${ext}`
+  const key = `platform/logo-${Date.now()}.${ext}`
   const buffer = Buffer.from(await file.arrayBuffer())
   const platformLogoUrl = await uploadFile(key, buffer, file.type)
 

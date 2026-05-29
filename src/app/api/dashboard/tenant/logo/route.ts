@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { uploadFile, deleteFile, keyFromUrl } from "@/lib/storage"
+import { revalidatePath } from "next/cache"
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"]
 const MAX_SIZE_BYTES = 2 * 1024 * 1024
@@ -27,9 +28,10 @@ export async function POST(req: Request) {
   }
 
   const ext = file.type.split("/")[1].replace("jpeg", "jpg")
-  const key = `logos/logo-${session.user.tenantId}.${ext}`
+  // Key único por upload — evita cache do CDN servindo arquivo antigo
+  const key = `logos/logo-${session.user.tenantId}-${Date.now()}.${ext}`
 
-  // Remover logo anterior (outras extensões)
+  // Remover logo anterior do R2
   const tenant = await prisma.tenant.findUnique({
     where: { id: session.user.tenantId },
     select: { logoUrl: true },
@@ -45,6 +47,9 @@ export async function POST(req: Request) {
     where: { id: session.user.tenantId },
     data: { logoUrl },
   })
+
+  revalidatePath("/configuracoes")
+  revalidatePath(`/b`)
 
   return NextResponse.json({ logoUrl })
 }
