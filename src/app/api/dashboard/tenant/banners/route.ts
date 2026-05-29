@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { writeFile, mkdir, existsSync } from "fs"
-import { promisify } from "util"
-import path from "path"
-
-const writeFileAsync = promisify(writeFile)
-const mkdirAsync = promisify(mkdir)
+import { uploadFile } from "@/lib/storage"
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
 const MAX_SIZE_BYTES = 2 * 1024 * 1024
@@ -39,10 +34,7 @@ export async function POST(req: Request) {
 
   const count = await prisma.banner.count({ where: { tenantId } })
   if (count >= MAX_BANNERS) {
-    return NextResponse.json(
-      { error: `Limite de ${MAX_BANNERS} banners atingido` },
-      { status: 422 }
-    )
+    return NextResponse.json({ error: `Limite de ${MAX_BANNERS} banners atingido` }, { status: 422 })
   }
 
   const formData = await req.formData()
@@ -50,9 +42,7 @@ export async function POST(req: Request) {
   const clickUrl = (formData.get("clickUrl") as string | null)?.trim() || null
   const position = (formData.get("position") as string | null) ?? "BOTH"
 
-  if (!file) {
-    return NextResponse.json({ error: "Nenhum arquivo enviado" }, { status: 400 })
-  }
+  if (!file) return NextResponse.json({ error: "Nenhum arquivo enviado" }, { status: 400 })
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: "Formato inválido. Use JPG, PNG ou WEBP." }, { status: 400 })
   }
@@ -65,17 +55,10 @@ export async function POST(req: Request) {
 
   const ext = file.type.split("/")[1].replace("jpeg", "jpg")
   const uid = Date.now().toString(36)
-  const filename = `banner-${tenantId}-${uid}.${ext}`
-  const uploadsDir = path.join(process.cwd(), "public", "uploads")
-
-  if (!existsSync(uploadsDir)) {
-    await mkdirAsync(uploadsDir, { recursive: true })
-  }
+  const key = `banners/banner-${tenantId}-${uid}.${ext}`
 
   const buffer = Buffer.from(await file.arrayBuffer())
-  await writeFileAsync(path.join(uploadsDir, filename), buffer)
-
-  const imageUrl = `/uploads/${filename}`
+  const imageUrl = await uploadFile(key, buffer, file.type)
 
   const banner = await prisma.banner.create({
     data: {

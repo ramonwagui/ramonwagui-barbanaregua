@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { writeFile, mkdir, unlink } from "fs/promises"
-import { existsSync } from "fs"
-import path from "path"
+import { uploadFile, deleteFile, keyFromUrl } from "@/lib/storage"
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"]
-const MAX_SIZE_BYTES = 2 * 1024 * 1024 // 2 MB
+const MAX_SIZE_BYTES = 2 * 1024 * 1024
 
 export async function POST(req: Request) {
   const session = await auth()
@@ -20,9 +18,7 @@ export async function POST(req: Request) {
   const formData = await req.formData()
   const file = formData.get("file") as File | null
 
-  if (!file) {
-    return NextResponse.json({ error: "Nenhum arquivo enviado" }, { status: 400 })
-  }
+  if (!file) return NextResponse.json({ error: "Nenhum arquivo enviado" }, { status: 400 })
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: "Formato inválido. Use JPG, PNG, WEBP ou GIF." }, { status: 400 })
   }
@@ -31,25 +27,19 @@ export async function POST(req: Request) {
   }
 
   const ext = file.type.split("/")[1].replace("jpeg", "jpg")
-  const filename = `logo-${session.user.tenantId}.${ext}`
-  const uploadsDir = path.join(process.cwd(), "public", "uploads")
+  const key = `logos/logo-${session.user.tenantId}.${ext}`
 
-  if (!existsSync(uploadsDir)) {
-    await mkdir(uploadsDir, { recursive: true })
-  }
-
-  // Remover logo anterior com qualquer extensão
-  for (const oldExt of ["jpg", "png", "webp", "gif"]) {
-    const oldPath = path.join(uploadsDir, `logo-${session.user.tenantId}.${oldExt}`)
-    if (existsSync(oldPath)) {
-      await unlink(oldPath).catch(() => {})
-    }
+  // Remover logo anterior (outras extensões)
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: session.user.tenantId },
+    select: { logoUrl: true },
+  })
+  if (tenant?.logoUrl) {
+    await deleteFile(keyFromUrl(tenant.logoUrl)).catch(() => {})
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
-  await writeFile(path.join(uploadsDir, filename), buffer)
-
-  const logoUrl = `/uploads/${filename}`
+  const logoUrl = await uploadFile(key, buffer, file.type)
 
   await prisma.tenant.update({
     where: { id: session.user.tenantId },
@@ -59,21 +49,19 @@ export async function POST(req: Request) {
   return NextResponse.json({ logoUrl })
 }
 
-export async function DELETE(req: Request) {
+export async function DELETE() {
   const session = await auth()
   if (!session?.user?.tenantId) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
   }
-  if (session.user.role === "BARBER") {
-    return NextResponse.json({ error: "Permissão insuficiente" }, { status: 403 })
-  }
 
-  const uploadsDir = path.join(process.cwd(), "public", "uploads")
-  for (const ext of ["jpg", "png", "webp", "gif"]) {
-    const filePath = path.join(uploadsDir, `logo-${session.user.tenantId}.${ext}`)
-    if (existsSync(filePath)) {
-      await unlink(filePath).catch(() => {})
-    }
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: session.user.tenantId },
+    select: { logoUrl: true },
+  })
+
+  if (tenant?.logoUrl) {
+    await deleteFile(keyFromUrl(tenant.logoUrl)).catch(() => {})
   }
 
   await prisma.tenant.update({
