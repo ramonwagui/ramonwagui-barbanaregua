@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { Clock, MapPin, Scissors } from "lucide-react"
 import BannerAd from "@/components/banner-ad"
+import BannerCarousel from "@/components/banner-carousel"
 export async function generateMetadata({
   params,
 }: {
@@ -75,6 +76,13 @@ export default async function BookingHomePage({
 
         {/* Conteúdo principal */}
         <div>
+          {/* Carrossel mobile — oculto em desktop (já tem banners laterais) */}
+          {activeBanners.length > 0 && (
+            <div className="lg:hidden px-5 pt-4">
+              <BannerCarousel banners={activeBanners} />
+            </div>
+          )}
+
           {/* Hero header */}
           <div className="relative overflow-hidden" style={{ background: "#0a0a0a" }}>
             <div

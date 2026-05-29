@@ -7,6 +7,9 @@ import { Calendar } from "@/components/ui/calendar"
 import { format, addDays } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { CheckCircle, ChevronLeft, ChevronRight, Clock, Scissors } from "lucide-react"
+import BannerCarousel from "@/components/banner-carousel"
+
+type Banner = { id: string; imageUrl: string; clickUrl: string | null }
 
 type Service = { id: string; name: string; durationMinutes: number; price: number }
 type Barber = { id: string; bio: string | null; avatarUrl: string | null; user: { name: string | null } }
@@ -31,11 +34,15 @@ export default function AgendarPage() {
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
   const [guestName, setGuestName] = useState("")
   const [guestPhone, setGuestPhone] = useState("")
+  const [banners, setBanners] = useState<Banner[]>([])
 
   useEffect(() => {
     fetch(`/api/public/${slug}/services`)
       .then((r) => r.json())
       .then((d) => setServices(d.services ?? []))
+    fetch(`/api/public/${slug}/banners`)
+      .then((r) => r.json())
+      .then((d) => setBanners(d.banners ?? []))
   }, [slug])
 
   useEffect(() => {
@@ -381,6 +388,13 @@ export default function AgendarPage() {
               <p className="text-white font-medium text-sm">{guestName}</p>
               <p className="text-zinc-500 text-sm">📱 {guestPhone}</p>
             </div>
+          </div>
+        )}
+
+        {/* Carrossel de banners — aparece em todos os steps exceto etapa 3 (Data e Hora, index 2) */}
+        {banners.length > 0 && step !== 2 && (
+          <div className="mt-6">
+            <BannerCarousel banners={banners} />
           </div>
         )}
       </div>
