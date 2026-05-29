@@ -32,19 +32,19 @@ export default function BannerCarousel({ banners, className = "" }: Props) {
 
   return (
     <div className={`w-full ${className}`}>
-      <div className="relative w-full overflow-hidden rounded-xl" style={{ aspectRatio: "16/5" }}>
+      <div className="relative w-full overflow-hidden rounded-xl bg-zinc-900" style={{ minHeight: 160, maxHeight: 240 }}>
         {banners.map((b, i) => (
           <div
             key={b.id}
-            className="absolute inset-0 transition-opacity duration-500"
-            style={{ opacity: i === current ? 1 : 0, pointerEvents: i === current ? "auto" : "none" }}
+            className="transition-opacity duration-500"
+            style={{ opacity: i === current ? 1 : 0, position: i === current ? "relative" : "absolute", inset: 0, pointerEvents: i === current ? "auto" : "none" }}
           >
             {b.clickUrl ? (
-              <a href={b.clickUrl} target="_blank" rel="noopener noreferrer" className="block w-full h-full">
-                <img src={b.imageUrl} alt="Anúncio" className="w-full h-full object-cover" />
+              <a href={b.clickUrl} target="_blank" rel="noopener noreferrer" className="block w-full">
+                <img src={b.imageUrl} alt="Anúncio" className="w-full object-contain" style={{ maxHeight: 240 }} />
               </a>
             ) : (
-              <img src={b.imageUrl} alt="Anúncio" className="w-full h-full object-cover" />
+              <img src={b.imageUrl} alt="Anúncio" className="w-full object-contain" style={{ maxHeight: 240 }} />
             )}
           </div>
         ))}
