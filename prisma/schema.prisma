@@ -472,3 +472,14 @@ model Banner {
 
   @@index([tenantId, isActive])
 }
+
+// ─────────────────────────────────────────────
+// CONFIGURAÇÃO GLOBAL DA PLATAFORMA
+// ─────────────────────────────────────────────
+
+model GlobalConfig {
+  id             String   @id @default("singleton")
+  platformLogoUrl String?
+  platformName   String   @default("Barbanaregua")
+  updatedAt      DateTime @updatedAt
+}

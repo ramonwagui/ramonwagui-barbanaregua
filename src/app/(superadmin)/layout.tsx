@@ -1,12 +1,14 @@
 import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { Logo } from "@/components/logo"
-import { LayoutDashboard, DollarSign, LogOut, ShieldCheck } from "lucide-react"
+import { LayoutDashboard, DollarSign, Settings, LogOut, ShieldCheck } from "lucide-react"
 
 const NAV = [
   { href: "/admin", label: "Visão Geral", icon: LayoutDashboard },
   { href: "/admin/financeiro", label: "Financeiro", icon: DollarSign },
+  { href: "/admin/configuracoes", label: "Configurações", icon: Settings },
 ]
 
 export default async function SuperAdminLayout({ children }: { children: React.ReactNode }) {
@@ -14,6 +16,8 @@ export default async function SuperAdminLayout({ children }: { children: React.R
 
   if (!session?.user) redirect("/login")
   if (session.user.role !== "SUPER_ADMIN") redirect("/dashboard")
+
+  const config = await prisma.globalConfig.findUnique({ where: { id: "singleton" } })
 
   const initials = (session.user.name ?? session.user.email ?? "A")
     .split(" ")
@@ -31,7 +35,19 @@ export default async function SuperAdminLayout({ children }: { children: React.R
       >
         {/* Logo + badge */}
         <div className="px-4 py-3 border-b border-zinc-800/60">
-          <Logo href="/admin" size="fill" />
+          {config?.platformLogoUrl ? (
+            <Link href="/admin" className="block w-full">
+              <div className="relative w-full" style={{ paddingBottom: "100%" }}>
+                <img
+                  src={config.platformLogoUrl}
+                  alt="Logo"
+                  className="absolute inset-0 w-full h-full object-contain"
+                />
+              </div>
+            </Link>
+          ) : (
+            <Logo href="/admin" size="fill" />
+          )}
           <div className="flex items-center gap-1.5 mt-2 px-1">
             <ShieldCheck className="w-3 h-3 text-amber-400" />
             <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase">
