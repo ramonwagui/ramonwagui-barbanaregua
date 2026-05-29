@@ -21,8 +21,8 @@ type Appointment = {
 
 type NextDay = {
   label: string
-  count: number
   dateStr: string
+  appointments: Appointment[]
 }
 
 const STATUS_LABELS: Record<ApptStatus, string> = {
@@ -269,33 +269,111 @@ export default function BarberDashboard({
         )}
       </div>
 
-      {/* Next 7 days preview */}
+      {/* Próximos 7 dias com detalhes */}
       {weekTotal > 0 && (
         <div className="rounded-2xl border border-zinc-800/60 overflow-hidden" style={{ backgroundColor: "#111111" }}>
-          <div className="px-5 py-4 border-b border-zinc-800/60">
-            <h2
-              className="text-white font-semibold"
-              style={{ fontFamily: "var(--font-cormorant)", fontSize: "1.15rem" }}
-            >
+          <div className="px-5 py-4 border-b border-zinc-800/60 flex items-center justify-between">
+            <h2 className="text-white font-semibold" style={{ fontFamily: "var(--font-cormorant)", fontSize: "1.15rem" }}>
               Próximos 7 dias
             </h2>
+            <span className="text-zinc-600 text-xs">{weekTotal} agendamento{weekTotal !== 1 ? "s" : ""}</span>
           </div>
+
           <div className="divide-y divide-zinc-800/40">
-            {nextDays.map((day) => (
-              <div key={day.dateStr} className="px-5 py-3 flex items-center justify-between hover:bg-zinc-800/20 transition-colors">
-                <p className="text-zinc-300 text-sm capitalize">{day.label}</p>
-                {day.count > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <div className="flex gap-1">
-                      {Array.from({ length: Math.min(day.count, 6) }).map((_, i) => (
-                        <div key={i} className="w-2 h-2 rounded-full bg-amber-500/60" />
-                      ))}
+            {nextDays.filter((d) => d.appointments.length > 0).map((day) => (
+              <div key={day.dateStr}>
+                {/* Cabeçalho do dia */}
+                <div className="px-5 py-2.5 flex items-center justify-between bg-zinc-900/40">
+                  <p className="text-zinc-300 text-xs font-semibold uppercase tracking-widest capitalize">{day.label}</p>
+                  <span className="text-amber-400 text-xs font-medium">
+                    {day.appointments.length} agendamento{day.appointments.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                {/* Agendamentos do dia */}
+                {day.appointments.map((appt) => {
+                  const style = STATUS_STYLES[appt.status]
+                  const isExpanded = expandedId === appt.id
+
+                  return (
+                    <div key={appt.id} className="border-t border-zinc-800/20">
+                      {/* Linha principal */}
+                      <div
+                        className="px-5 py-3.5 flex items-center gap-3 cursor-pointer hover:bg-zinc-800/20 transition-colors"
+                        onClick={() => setExpandedId(isExpanded ? null : appt.id)}
+                      >
+                        {/* Horário */}
+                        <div className="w-12 shrink-0 text-center py-1.5 rounded-lg" style={{ backgroundColor: "#f59e0b10", border: "1px solid #f59e0b20" }}>
+                          <p className="text-white font-bold text-xs leading-none">
+                            {format(new Date(appt.scheduledAt), "HH:mm")}
+                          </p>
+                          <p className="text-zinc-600 text-xs mt-0.5">
+                            {format(new Date(appt.endsAt), "HH:mm")}
+                          </p>
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-medium text-sm truncate">{appt.guestName ?? "Cliente"}</p>
+                          <p className="text-zinc-500 text-xs mt-0.5 truncate">
+                            {appt.services.map((s) => s.name).join(" + ")}
+                          </p>
+                        </div>
+
+                        {/* Status + chevron */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: style.bg, color: style.text }}>
+                            {STATUS_LABELS[appt.status]}
+                          </span>
+                          <ChevronDown
+                            className="w-3.5 h-3.5 text-zinc-600 transition-transform"
+                            style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Detalhes expandidos */}
+                      {isExpanded && (
+                        <div className="px-5 pb-4 pt-1 bg-zinc-800/10 space-y-3">
+                          {/* Serviços */}
+                          <div>
+                            <p className="text-zinc-600 text-xs uppercase tracking-widest mb-1">Serviços</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {appt.services.map((s, i) => (
+                                <span key={i} className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-300">{s.name}</span>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Cliente */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-zinc-600 text-xs uppercase tracking-widest mb-1">Cliente</p>
+                              {appt.guestPhone ? (
+                                <a
+                                  href={`https://wa.me/55${appt.guestPhone}`}
+                                  target="_blank"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center gap-1.5 text-xs text-green-400 hover:text-green-300 transition-colors"
+                                >
+                                  <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current shrink-0">
+                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                                  </svg>
+                                  {appt.guestPhone}
+                                </a>
+                              ) : (
+                                <p className="text-zinc-500 text-xs">{appt.guestName ?? "—"}</p>
+                              )}
+                            </div>
+                            <p className="text-amber-400 font-bold text-base" style={{ fontFamily: "var(--font-cormorant)" }}>
+                              R$ {appt.totalPrice.toFixed(2).replace(".", ",")}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <span className="text-amber-400 text-sm font-medium">{day.count}</span>
-                  </div>
-                ) : (
-                  <span className="text-zinc-700 text-sm">—</span>
-                )}
+                  )
+                })}
               </div>
             ))}
           </div>

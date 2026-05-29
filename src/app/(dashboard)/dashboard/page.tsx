@@ -52,7 +52,8 @@ async function BarberDashboardPage({ userId, tenantId, userName }: { userId: str
         scheduledAt: { gte: weekStart, lte: weekEnd },
         status: { notIn: ["CANCELLED", "NO_SHOW"] },
       },
-      select: { scheduledAt: true },
+      orderBy: { scheduledAt: "asc" },
+      include: { services: { include: { service: { select: { name: true } } } } },
     }),
   ])
 
@@ -60,13 +61,22 @@ async function BarberDashboardPage({ userId, tenantId, userName }: { userId: str
   const nextDays = Array.from({ length: 7 }, (_, i) => {
     const d = addDays(today, i + 1)
     const dateStr = format(d, "yyyy-MM-dd")
-    const count = weekAppts.filter(
+    const dayAppts = weekAppts.filter(
       (a) => format(a.scheduledAt, "yyyy-MM-dd") === dateStr
-    ).length
+    )
     return {
       label: format(d, "EEEE, dd/MM", { locale: ptBR }),
-      count,
       dateStr,
+      appointments: dayAppts.map((a) => ({
+        id: a.id,
+        guestName: a.guestName,
+        guestPhone: a.guestPhone,
+        scheduledAt: a.scheduledAt.toISOString(),
+        endsAt: a.endsAt.toISOString(),
+        totalPrice: Number(a.totalPrice),
+        status: a.status as "PENDING" | "CONFIRMED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "NO_SHOW",
+        services: a.services.map((s) => ({ name: s.service.name })),
+      })),
     }
   })
 
