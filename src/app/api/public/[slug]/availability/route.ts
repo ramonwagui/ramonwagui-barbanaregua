@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
-import { getTenantBySlug } from "@/lib/tenant"
+import { getTenantBySlug, TenantNotFoundError } from "@/lib/tenant"
 import { getAvailableSlots } from "@/lib/availability"
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 import { prisma } from "@/lib/prisma"
 
 export async function GET(
@@ -8,6 +9,14 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const { success } = await checkRateLimit("availability", getClientIp(req))
+    if (!success) {
+      return NextResponse.json(
+        { error: "Muitas requisições. Aguarde um momento." },
+        { status: 429 }
+      )
+    }
+
     const { slug } = await params
     const { searchParams } = new URL(req.url)
     const barberId = searchParams.get("barberId")
@@ -32,6 +41,9 @@ export async function GET(
 
     const totalDuration = services.reduce((sum: number, s: { durationMinutes: number }) => sum + s.durationMinutes, 0)
     const parsedDate = new Date(date)
+    if (isNaN(parsedDate.getTime())) {
+      return NextResponse.json({ error: "Data inválida" }, { status: 400 })
+    }
 
     const slots = await getAvailableSlots({
       tenantId: tenant.id,
@@ -46,7 +58,11 @@ export async function GET(
         endsAt: s.endsAt.toISOString(),
       })),
     })
-  } catch {
+  } catch (error) {
+    if (error instanceof TenantNotFoundError) {
+      return NextResponse.json({ error: "Barbearia não encontrada" }, { status: 404 })
+    }
+    console.error("[AVAILABILITY]", error)
     return NextResponse.json({ error: "Erro ao buscar disponibilidade" }, { status: 500 })
   }
 }

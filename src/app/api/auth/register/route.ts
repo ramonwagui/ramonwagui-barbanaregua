@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma"
 import { slugify } from "@/lib/tenant"
 import { registerSchema } from "@/lib/validations/auth"
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 import { addDays } from "date-fns"
 
 type TxClient = Omit<
@@ -12,6 +13,14 @@ type TxClient = Omit<
 
 export async function POST(req: Request) {
   try {
+    const { success } = await checkRateLimit("register", getClientIp(req))
+    if (!success) {
+      return NextResponse.json(
+        { error: "Muitas tentativas de cadastro. Tente novamente mais tarde." },
+        { status: 429 }
+      )
+    }
+
     const body = await req.json()
     const data = registerSchema.parse(body)
 

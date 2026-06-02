@@ -138,3 +138,22 @@ export async function getAvailableSlots(query: SlotQuery): Promise<TimeSlot[]> {
       endsAt: addMinutes(slotStart, serviceDurationMinutes),
     }))
 }
+
+/**
+ * Valida, no servidor, se um horário específico é um slot de agendamento
+ * válido para o barbeiro (dentro do expediente, fora da pausa, dia não
+ * fechado, sem bloqueio manual e não no passado).
+ *
+ * Reaproveita getAvailableSlots para garantir que a validação do booking
+ * use exatamente as mesmas regras exibidas ao cliente. NÃO substitui a
+ * checagem de conflito com lock transacional feita no endpoint de booking.
+ */
+export async function isSlotAvailable(query: SlotQuery & {
+  requestedStart: Date
+}): Promise<boolean> {
+  const { requestedStart, ...slotQuery } = query
+  const slots = await getAvailableSlots(slotQuery)
+  return slots.some(
+    (slot) => slot.startAt.getTime() === requestedStart.getTime()
+  )
+}

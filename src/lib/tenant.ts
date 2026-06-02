@@ -36,6 +36,26 @@ export async function getTenantById(
   return tenant
 }
 
+/**
+ * Regra de negócio: a barbearia só aceita agendamentos públicos se a
+ * assinatura estiver vigente. Bloqueia assinaturas canceladas/não pagas e
+ * trials já expirados (independente de webhook ter atualizado o status).
+ * PAST_DUE é tolerado como período de carência.
+ */
+export function canAcceptBookings(tenant: TenantWithSubscription): boolean {
+  const sub = tenant.subscription
+  if (!sub) return false
+  if (sub.status === "CANCELLED" || sub.status === "UNPAID") return false
+  if (
+    sub.status === "TRIALING" &&
+    sub.trialEndsAt &&
+    sub.trialEndsAt.getTime() < Date.now()
+  ) {
+    return false
+  }
+  return true
+}
+
 export function slugify(name: string): string {
   return name
     .toLowerCase()

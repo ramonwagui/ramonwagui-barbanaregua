@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getTenantBySlug } from "@/lib/tenant"
+import { getTenantBySlug, canAcceptBookings, TenantNotFoundError } from "@/lib/tenant"
 import { createAppointmentSchema } from "@/lib/validations/appointment"
 import { sendBookingConfirmation } from "@/lib/notifications"
+import { isSlotAvailable } from "@/lib/availability"
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 import { addMinutes } from "date-fns"
 import { Prisma, Service } from "@prisma/client"
 import { ZodError } from "zod"
@@ -12,11 +14,26 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const { success } = await checkRateLimit("book", getClientIp(req))
+    if (!success) {
+      return NextResponse.json(
+        { error: "Muitas tentativas. Aguarde um momento e tente novamente." },
+        { status: 429 }
+      )
+    }
+
     const { slug } = await params
     const body = await req.json()
     const data = createAppointmentSchema.parse(body)
 
     const tenant = await getTenantBySlug(slug)
+
+    if (!canAcceptBookings(tenant)) {
+      return NextResponse.json(
+        { error: "Esta barbearia não está aceitando agendamentos no momento." },
+        { status: 403 }
+      )
+    }
 
     const services: Service[] = await prisma.service.findMany({
       where: {
@@ -43,6 +60,23 @@ export async function POST(
     })
     if (!barber) {
       return NextResponse.json({ error: "Barbeiro não encontrado" }, { status: 404 })
+    }
+
+    // Revalida no servidor que o horário é realmente um slot válido
+    // (expediente, pausa, dia fechado, bloqueio, passado). Não confiar
+    // apenas no front, pois esta é uma API pública.
+    const slotOk = await isSlotAvailable({
+      tenantId: tenant.id,
+      barberId: data.barberId,
+      date: scheduledAt,
+      serviceDurationMinutes: totalDuration,
+      requestedStart: scheduledAt,
+    })
+    if (!slotOk) {
+      return NextResponse.json(
+        { error: "Horário não disponível. Escolha outro horário." },
+        { status: 409 }
+      )
     }
 
     const appointment = await prisma.$transaction(
@@ -125,6 +159,9 @@ export async function POST(
         { error: "Horário não disponível. Escolha outro horário." },
         { status: 409 }
       )
+    }
+    if (error instanceof TenantNotFoundError) {
+      return NextResponse.json({ error: "Barbearia não encontrada" }, { status: 404 })
     }
     if (error instanceof ZodError) {
       console.error("[BOOK] Validation error:", error.issues)
