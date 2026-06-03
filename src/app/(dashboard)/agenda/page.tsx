@@ -69,6 +69,7 @@ export default async function AgendaPage({
         scheduledAt: a.scheduledAt.toISOString(),
         endsAt: a.endsAt.toISOString(),
         totalPrice: Number(a.totalPrice),
+        depositAmount: a.depositAmount ? Number(a.depositAmount) : null,
         services: a.services.map((s) => ({ name: s.service.name })),
         barberName: a.barber.user.name ?? "—",
       }))}

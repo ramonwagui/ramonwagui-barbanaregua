@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getTenantBySlug, canAcceptBookings, TenantNotFoundError } from "@/lib/tenant"
-import { createAppointmentSchema } from "@/lib/validations/appointment"
+import {
+  createAppointmentSchema,
+  depositEmailSchema,
+} from "@/lib/validations/appointment"
 import { sendBookingConfirmation } from "@/lib/notifications"
 import { isSlotAvailable } from "@/lib/availability"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
+import {
+  createPixPayment,
+  isMercadoPagoConfigured,
+} from "@/lib/mercadopago"
 import { addMinutes } from "date-fns"
 import { Prisma, Service } from "@prisma/client"
 import { ZodError } from "zod"
@@ -79,6 +86,27 @@ export async function POST(
       )
     }
 
+    // ── Configuração de sinal (depósito) da barbearia ──
+    const requireDeposit = tenant.requireDeposit
+    let payerEmail = ""
+    let depositAmount: Prisma.Decimal | null = null
+    let paymentExpiresAt: Date | null = null
+
+    if (requireDeposit) {
+      if (!isMercadoPagoConfigured()) {
+        return NextResponse.json(
+          { error: "Pagamento indisponível no momento. Tente novamente mais tarde." },
+          { status: 503 }
+        )
+      }
+      // E-mail é obrigatório para gerar o PIX (pagador do Mercado Pago)
+      payerEmail = depositEmailSchema.parse(data.guestEmail)
+
+      const percent = Math.min(100, Math.max(1, tenant.depositPercent))
+      depositAmount = totalPrice.mul(percent).div(100)
+      paymentExpiresAt = addMinutes(new Date(), tenant.depositExpiryMinutes)
+    }
+
     const appointment = await prisma.$transaction(
       async (
         tx: Omit<
@@ -92,10 +120,16 @@ export async function POST(
           )
         `
 
+        // Ignora reservas PENDING cujo sinal expirou (slot já liberado, mesmo
+        // que o cron ainda não as tenha cancelado).
         const conflict = await tx.appointment.findFirst({
           where: {
             barberId: data.barberId,
             status: { notIn: ["CANCELLED", "NO_SHOW"] },
+            NOT: {
+              status: "PENDING",
+              paymentExpiresAt: { lt: new Date() },
+            },
             AND: [
               { scheduledAt: { lt: endsAt } },
               { endsAt: { gt: scheduledAt } },
@@ -116,7 +150,9 @@ export async function POST(
             scheduledAt,
             endsAt,
             totalPrice,
-            status: "CONFIRMED",
+            depositAmount,
+            paymentExpiresAt,
+            status: requireDeposit ? "PENDING" : "CONFIRMED",
             services: {
               create: services.map((s) => ({
                 serviceId: s.id,
@@ -134,25 +170,86 @@ export async function POST(
       }
     )
 
-    sendBookingConfirmation(appointment).catch(console.error)
+    // ── Sem sinal: fluxo original (confirma na hora) ──
+    if (!requireDeposit) {
+      sendBookingConfirmation(appointment).catch(console.error)
 
-    return NextResponse.json(
-      {
-        success: true,
-        appointment: {
-          id: appointment.id,
-          scheduledAt: appointment.scheduledAt,
-          endsAt: appointment.endsAt,
-          guestName: appointment.guestName,
-          barberName: appointment.barber.user.name,
-          services: appointment.services.map(
-            (s: { service: { name: string } }) => s.service.name
-          ),
-          totalPrice: appointment.totalPrice,
+      return NextResponse.json(
+        {
+          success: true,
+          requiresPayment: false,
+          appointment: serializeAppointment(appointment),
         },
-      },
-      { status: 201 }
-    )
+        { status: 201 }
+      )
+    }
+
+    // ── Com sinal: cria Payment + PIX (fora da transação p/ não segurar o lock) ──
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+    try {
+      const payment = await prisma.payment.create({
+        data: {
+          tenantId: tenant.id,
+          appointmentId: appointment.id,
+          amount: depositAmount!,
+          status: "PENDING",
+          provider: "MERCADO_PAGO",
+          metadata: {
+            kind: "DEPOSIT",
+            appointmentTotal: totalPrice.toString(),
+          },
+        },
+      })
+
+      const pix = await createPixPayment({
+        amount: Number(depositAmount!),
+        description: `Sinal — ${tenant.name}`,
+        payerEmail,
+        externalReference: payment.id,
+        expiresAt: paymentExpiresAt!,
+        notificationUrl: `${baseUrl}/api/webhooks/mercadopago`,
+      })
+
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          providerPaymentId: pix.id,
+          pixCode: pix.qrCode,
+          pixQrCode: pix.qrCodeBase64,
+          status: "PROCESSING",
+        },
+      })
+
+      return NextResponse.json(
+        {
+          success: true,
+          requiresPayment: true,
+          paymentId: payment.id,
+          pixCode: pix.qrCode,
+          pixQrCode: pix.qrCodeBase64,
+          depositAmount: Number(depositAmount!),
+          expiresAt: paymentExpiresAt!.toISOString(),
+          appointment: serializeAppointment(appointment),
+        },
+        { status: 201 }
+      )
+    } catch (err) {
+      // Falha ao gerar o PIX: libera o slot cancelando a reserva PENDING.
+      console.error("[BOOK] Falha ao gerar PIX:", err)
+      await prisma.appointment.update({
+        where: { id: appointment.id },
+        data: {
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+          cancellationReason: "Falha ao gerar pagamento do sinal",
+        },
+      }).catch(console.error)
+
+      return NextResponse.json(
+        { error: "Não foi possível gerar o pagamento do sinal. Tente novamente." },
+        { status: 502 }
+      )
+    }
   } catch (error) {
     if (error instanceof Error && error.message === "SLOT_UNAVAILABLE") {
       return NextResponse.json(
@@ -172,5 +269,25 @@ export async function POST(
     }
     console.error("[BOOK]", error)
     return NextResponse.json({ error: "Erro interno" }, { status: 500 })
+  }
+}
+
+function serializeAppointment(appointment: {
+  id: string
+  scheduledAt: Date
+  endsAt: Date
+  guestName: string | null
+  barber: { user: { name: string | null } }
+  services: Array<{ service: { name: string } }>
+  totalPrice: unknown
+}) {
+  return {
+    id: appointment.id,
+    scheduledAt: appointment.scheduledAt,
+    endsAt: appointment.endsAt,
+    guestName: appointment.guestName,
+    barberName: appointment.barber.user.name,
+    services: appointment.services.map((s) => s.service.name),
+    totalPrice: appointment.totalPrice,
   }
 }

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import ConfiguracoesClient from "./configuracoes-client"
+import DepositoClient from "./deposito-client"
 import BookingLinkCard from "@/components/booking-link-card"
 import AnunciosClient from "./anuncios-client"
 
@@ -54,6 +55,18 @@ export default async function ConfiguracoesPage() {
         }}
         isOwner={isOwner}
       />
+
+      {/* Sinal / Depósito (apenas owner) */}
+      {isOwner && (
+        <DepositoClient
+          initial={{
+            requireDeposit: tenant.requireDeposit,
+            depositPercent: tenant.depositPercent,
+            depositExpiryMinutes: tenant.depositExpiryMinutes,
+            cancelRefundHours: tenant.cancelRefundHours,
+          }}
+        />
+      )}
 
       {/* Banners de anúncio (apenas owner) */}
       {isOwner && <AnunciosClient initialBanners={banners.map((b) => ({ ...b, clickUrl: b.clickUrl ?? null }))} />}

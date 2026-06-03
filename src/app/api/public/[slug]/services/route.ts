@@ -23,7 +23,17 @@ export async function GET(
       },
     })
 
-    return NextResponse.json({ tenant: { name: tenant.name, slug: tenant.slug, primaryColor: tenant.primaryColor, logoUrl: tenant.logoUrl }, services })
+    return NextResponse.json({
+      tenant: {
+        name: tenant.name,
+        slug: tenant.slug,
+        primaryColor: tenant.primaryColor,
+        logoUrl: tenant.logoUrl,
+        requireDeposit: tenant.requireDeposit,
+        depositPercent: tenant.depositPercent,
+      },
+      services,
+    })
   } catch {
     return NextResponse.json({ error: "Barbearia não encontrada" }, { status: 404 })
   }

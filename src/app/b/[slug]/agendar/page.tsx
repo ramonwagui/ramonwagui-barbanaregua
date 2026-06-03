@@ -34,12 +34,21 @@ export default function AgendarPage() {
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
   const [guestName, setGuestName] = useState("")
   const [guestPhone, setGuestPhone] = useState("")
+  const [guestEmail, setGuestEmail] = useState("")
   const [banners, setBanners] = useState<Banner[]>([])
+  const [requireDeposit, setRequireDeposit] = useState(false)
+  const [depositPercent, setDepositPercent] = useState(50)
 
   useEffect(() => {
     fetch(`/api/public/${slug}/services`)
       .then((r) => r.json())
-      .then((d) => setServices(d.services ?? []))
+      .then((d) => {
+        setServices(d.services ?? [])
+        if (d.tenant?.requireDeposit) {
+          setRequireDeposit(true)
+          setDepositPercent(d.tenant.depositPercent ?? 50)
+        }
+      })
     fetch(`/api/public/${slug}/banners`)
       .then((r) => r.json())
       .then((d) => setBanners(d.banners ?? []))
@@ -91,11 +100,16 @@ export default function AgendarPage() {
           scheduledAt: selectedSlot.startAt,
           guestName,
           guestPhone: guestPhone.replace(/\D/g, ""),
+          guestEmail: guestEmail.trim() || undefined,
         }),
       })
       const data = await res.json()
       if (res.ok) {
-        router.push(`/b/${slug}/confirmar?id=${data.appointment.id}`)
+        if (data.requiresPayment) {
+          router.push(`/b/${slug}/pagamento?paymentId=${data.paymentId}`)
+        } else {
+          router.push(`/b/${slug}/confirmar?id=${data.appointment.id}`)
+        }
       } else {
         const msg = data.details?.length
           ? `${data.error}: ${data.details.join(", ")}`
@@ -109,12 +123,18 @@ export default function AgendarPage() {
 
   const totalPrice = selectedServices.reduce((s, sv) => s + Number(sv.price), 0)
   const totalDuration = selectedServices.reduce((s, sv) => s + sv.durationMinutes, 0)
+  const depositAmount = requireDeposit ? (totalPrice * depositPercent) / 100 : 0
+  const remainingAmount = totalPrice - depositAmount
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail.trim())
 
   const canAdvance =
     (step === 0 && selectedServices.length > 0) ||
     (step === 1 && selectedBarber !== null) ||
     (step === 2 && selectedSlot !== null) ||
-    (step === 3 && guestName.trim().length > 0 && guestPhone.length >= 10) ||
+    (step === 3 &&
+      guestName.trim().length > 0 &&
+      guestPhone.length >= 10 &&
+      (!requireDeposit || emailValid)) ||
     step === 4
 
   return (
@@ -333,6 +353,23 @@ export default function AgendarPage() {
                 Você receberá a confirmação no WhatsApp.
               </p>
             </div>
+            {requireDeposit && (
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-2">
+                  E-mail
+                </label>
+                <input
+                  placeholder="voce@email.com"
+                  type="email"
+                  value={guestEmail}
+                  onChange={(e) => setGuestEmail(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 rounded-xl px-4 py-3.5 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 transition-all"
+                />
+                <p className="text-zinc-600 text-xs mt-2">
+                  Necessário para gerar o PIX do sinal.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -380,6 +417,29 @@ export default function AgendarPage() {
                 </span>
               </div>
             </div>
+
+            {requireDeposit && (
+              <div className="bg-amber-500/5 rounded-xl border border-amber-500/30 px-5 py-4 space-y-2">
+                <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-1">
+                  Sinal para confirmar
+                </p>
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-400">Sinal agora ({depositPercent}%)</span>
+                  <span className="text-white font-semibold">
+                    R$ {depositAmount.toFixed(2).replace(".", ",")}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-400">Restante no local</span>
+                  <span className="text-white font-medium">
+                    R$ {remainingAmount.toFixed(2).replace(".", ",")}
+                  </span>
+                </div>
+                <p className="text-zinc-500 text-xs pt-1">
+                  Pague o sinal via PIX para garantir o horário. O valor é abatido do total no dia do atendimento.
+                </p>
+              </div>
+            )}
 
             <div className="bg-zinc-900 rounded-xl border border-zinc-800 px-5 py-4">
               <p className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3">
@@ -429,7 +489,11 @@ export default function AgendarPage() {
               disabled={submitting}
               onClick={handleConfirm}
             >
-              {submitting ? "Agendando..." : "Confirmar agendamento →"}
+              {submitting
+                ? "Processando..."
+                : requireDeposit
+                  ? `Pagar sinal de R$ ${depositAmount.toFixed(2).replace(".", ",")} →`
+                  : "Confirmar agendamento →"}
             </button>
           )}
         </div>

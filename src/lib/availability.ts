@@ -69,12 +69,19 @@ export async function getAvailableSlots(query: SlotQuery): Promise<TimeSlot[]> {
     breakEnd = parseTime(schedule.breakEnd, date)
   }
 
-  // 3. Agendamentos existentes do barbeiro nesse dia
+  // 3. Agendamentos existentes do barbeiro nesse dia.
+  //    Reservas PENDING (aguardando sinal) seguram o slot, MAS as que já
+  //    passaram do prazo de pagamento (paymentExpiresAt) são ignoradas —
+  //    o slot é liberado mesmo antes do cron de expiração rodar.
   const existingAppointments = await prisma.appointment.findMany({
     where: {
       barberId,
       scheduledAt: { gte: dayStart, lte: dayEnd },
       status: { notIn: ["CANCELLED", "NO_SHOW"] },
+      NOT: {
+        status: "PENDING",
+        paymentExpiresAt: { lt: new Date() },
+      },
     },
     select: { scheduledAt: true, endsAt: true },
   })

@@ -15,6 +15,7 @@ type Appointment = {
   scheduledAt: string
   endsAt: string
   totalPrice: number
+  depositAmount: number | null
   status: ApptStatus
   barberId: string
   barberName: string
@@ -208,6 +209,13 @@ export default function AgendaClient({
                     >
                       R$ {appt.totalPrice.toFixed(2).replace(".", ",")}
                     </p>
+                    {appt.depositAmount && appt.depositAmount > 0 && (
+                      <p className="text-zinc-500 text-[11px] mt-0.5 whitespace-nowrap">
+                        sinal R$ {appt.depositAmount.toFixed(2).replace(".", ",")}
+                        {" · "}
+                        falta R$ {(appt.totalPrice - appt.depositAmount).toFixed(2).replace(".", ",")}
+                      </p>
+                    )}
                   </div>
 
                   {/* Status + Actions */}

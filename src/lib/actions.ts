@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { AppointmentStatus } from "@prisma/client"
+import { refundDepositForCancellation } from "@/lib/payment-reconcile"
 
 async function requireTenantOwner() {
   const session = await auth()
@@ -40,10 +41,43 @@ export async function updateAppointmentStatus(appointmentId: string, status: App
       tenantId: session.user.tenantId!,
       ...(barberIdFilter ? { barberId: barberIdFilter } : {}),
     },
-    data: { status },
+    data: {
+      status,
+      ...(status === "CANCELLED"
+        ? { cancelledAt: new Date() }
+        : {}),
+    },
   })
+
+  // Política de sinal: ao cancelar, estorna o sinal se houver antecedência
+  // suficiente; NO_SHOW nunca estorna (barbeiro fica com o sinal).
+  if (status === "CANCELLED") {
+    await refundDepositForCancellation(appointmentId).catch(console.error)
+  }
+
   revalidatePath("/agenda")
   revalidatePath("/dashboard")
+}
+
+// ─── Configuração de sinal (depósito) ────────────────────────
+
+export async function updateDepositSettings(data: {
+  requireDeposit: boolean
+  depositPercent: number
+  depositExpiryMinutes: number
+  cancelRefundHours: number
+}) {
+  const session = await requireTenantOwner()
+  await prisma.tenant.update({
+    where: { id: session.user.tenantId! },
+    data: {
+      requireDeposit: data.requireDeposit,
+      depositPercent: Math.min(100, Math.max(1, Math.round(data.depositPercent))),
+      depositExpiryMinutes: Math.min(120, Math.max(5, Math.round(data.depositExpiryMinutes))),
+      cancelRefundHours: Math.max(0, Math.round(data.cancelRefundHours)),
+    },
+  })
+  revalidatePath("/configuracoes")
 }
 
 // ─── Services ────────────────────────────────────────────────

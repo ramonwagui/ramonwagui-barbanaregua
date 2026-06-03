@@ -14,3 +14,12 @@ export const createAppointmentSchema = z.object({
 })
 
 export type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>
+
+/**
+ * Quando a barbearia exige sinal, o e-mail do cliente passa a ser
+ * obrigatório (o Mercado Pago exige e-mail do pagador no PIX).
+ */
+export const depositEmailSchema = z
+  .string()
+  .min(1, "E-mail é obrigatório para pagar o sinal")
+  .email("Email inválido")

@@ -23,6 +23,13 @@ model Tenant {
   timezone     String   @default("America/Sao_Paulo")
   primaryColor String   @default("#1a1a2e")
   isActive     Boolean  @default(true)
+
+  // Sinal (depósito) para confirmar agendamento
+  requireDeposit       Boolean @default(false)
+  depositPercent       Int     @default(50) // 1–100
+  depositExpiryMinutes Int     @default(20) // tempo p/ pagar o PIX antes de liberar o slot
+  cancelRefundHours    Int     @default(24) // antecedência mínima p/ estorno
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -231,6 +238,8 @@ model Appointment {
   endsAt             DateTime
   notes              String?
   totalPrice         Decimal           @db.Decimal(10, 2)
+  depositAmount      Decimal?          @db.Decimal(10, 2) // valor do sinal cobrado
+  paymentExpiresAt   DateTime?         // quando o hold PENDING (aguardando sinal) expira
   reminderSent       Boolean           @default(false)
   cancellationReason String?
   cancelledAt        DateTime?

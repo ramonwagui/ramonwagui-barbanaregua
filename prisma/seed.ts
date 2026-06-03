@@ -10,10 +10,28 @@ const pool = new Pool({
 const adapter = new PrismaPg(pool)
 const prisma = new PrismaClient({ adapter })
 
+// Em produção exige senhas via env; em dev usa defaults óbvios de teste.
+const IS_PROD = process.env.NODE_ENV === "production"
+
+function seedPassword(envVar: string, devDefault: string): string {
+  const fromEnv = process.env[envVar]
+  if (fromEnv) return fromEnv
+  if (IS_PROD) {
+    throw new Error(
+      `${envVar} é obrigatória para seed em produção (não há senha padrão).`
+    )
+  }
+  return devDefault
+}
+
 async function main() {
   console.log("🌱 Seeding banco de dados...")
 
-  const passwordHash = await bcrypt.hash("Senha@123", 12)
+  const adminPassword = seedPassword("SEED_ADMIN_PASSWORD", "Admin@123")
+  const ownerPassword = seedPassword("SEED_OWNER_PASSWORD", "Senha@123")
+  const barberPassword = seedPassword("SEED_BARBER_PASSWORD", "Senha@123")
+
+  const passwordHash = await bcrypt.hash(ownerPassword, 12)
 
   // Criar Super Admin
   await prisma.user.upsert({
@@ -22,7 +40,7 @@ async function main() {
     create: {
       name: "Super Admin",
       email: "admin@barbanaregua.com",
-      passwordHash: await bcrypt.hash("Admin@123", 12),
+      passwordHash: await bcrypt.hash(adminPassword, 12),
       role: "SUPER_ADMIN",
       isActive: true,
     },
@@ -107,7 +125,7 @@ async function main() {
     create: {
       name: "Carlos Barbeiro",
       email: "barbeiro@barbearia.com",
-      passwordHash,
+      passwordHash: await bcrypt.hash(barberPassword, 12),
       role: "BARBER",
       tenantId: tenant.id,
     },
@@ -173,9 +191,14 @@ async function main() {
 
   console.log("✅ Seed concluído!")
   console.log(`\n📋 Dados de acesso:`)
-  console.log(`   Super Admin: admin@barbanaregua.com / Admin@123`)
-  console.log(`   Dono: dono@barbearia.com / Senha@123`)
-  console.log(`   Barbeiro: barbeiro@barbearia.com / Senha@123`)
+  console.log(`   Super Admin: admin@barbanaregua.com`)
+  console.log(`   Dono: dono@barbearia.com`)
+  console.log(`   Barbeiro: barbeiro@barbearia.com`)
+  if (!IS_PROD) {
+    console.log(
+      `   (senhas dev: ${adminPassword} / ${ownerPassword} / ${barberPassword} — defina SEED_*_PASSWORD para sobrescrever)`
+    )
+  }
   console.log(`   Página de agendamento: http://localhost:3000/b/barbearia-demo`)
   console.log(`   Dashboard: http://localhost:3000/dashboard`)
   console.log(`   Admin: http://localhost:3000/admin`)
