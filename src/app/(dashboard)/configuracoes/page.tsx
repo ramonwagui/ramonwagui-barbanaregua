@@ -6,6 +6,7 @@ import { redirect } from "next/navigation"
 import ConfiguracoesClient from "./configuracoes-client"
 import DepositoClient from "./deposito-client"
 import MercadoPagoClient from "./mercadopago-client"
+import CancelamentoClient from "./cancelamento-client"
 import BookingLinkCard from "@/components/booking-link-card"
 import AnunciosClient from "./anuncios-client"
 import { getTenantConnectionInfo } from "@/lib/mp-account"
@@ -81,6 +82,10 @@ export default async function ConfiguracoesPage() {
               cancelRefundHours: tenant.cancelRefundHours,
             }}
             connected={mpInfo?.connected ?? false}
+          />
+          <CancelamentoClient
+            initial={tenant.allowClientCancellation}
+            cancelRefundHours={tenant.cancelRefundHours}
           />
         </>
       )}

@@ -10,14 +10,17 @@ interface AppointmentNotifData {
   guestPhone?: string | null
   scheduledAt: Date
   barber: { user: { name: string | null } }
-  tenant: { name: string; slug: string }
+  tenant: { name: string; slug: string; allowClientCancellation?: boolean }
   services: Array<{ service: { name: string } }>
   totalPrice: unknown
 }
 
-function buildCancelUrl(appointmentId: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-  return `${base}/api/appointments/${appointmentId}/cancel`
+function buildCancelUrl(slug: string, appointmentId: string): string {
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
+    /\/$/,
+    ""
+  )
+  return `${base}/b/${slug}/cancelar?id=${appointmentId}`
 }
 
 function formatPrice(price: unknown): string {
@@ -35,30 +38,33 @@ function buildConfirmationMessage(appt: AppointmentNotifData): string {
   const serviceNames = appt.services.map((s) => s.service.name).join(" + ")
   const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
   const price = formatPrice(appt.totalPrice)
-  const cancelUrl = buildCancelUrl(appt.id)
 
-  return (
+  const base =
     `Olá ${clientName}! ✂️ Seu agendamento foi confirmado na ${appt.tenant.name}.\n` +
     `📅 ${dateStr}\n` +
     `✂️ ${serviceNames} com ${barberName}\n` +
-    `💰 ${price}\n\n` +
-    `Para cancelar: ${cancelUrl}`
-  )
+    `💰 ${price}`
+
+  if (appt.tenant.allowClientCancellation) {
+    return `${base}\n\nPara cancelar: ${buildCancelUrl(appt.tenant.slug, appt.id)}`
+  }
+  return base
 }
 
 function buildReminderMessage(appt: AppointmentNotifData): string {
-  const clientName = appt.guestName ?? "Cliente"
   const barberName = appt.barber.user.name ?? "Barbeiro"
   const serviceNames = appt.services.map((s) => s.service.name).join(" + ")
   const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
-  const cancelUrl = buildCancelUrl(appt.id)
 
-  return (
+  const base =
     `Lembrete! ✂️ Amanhã você tem agendamento na ${appt.tenant.name}.\n` +
     `📅 ${dateStr}\n` +
-    `✂️ ${serviceNames} com ${barberName}\n\n` +
-    `Para cancelar: ${cancelUrl}`
-  )
+    `✂️ ${serviceNames} com ${barberName}`
+
+  if (appt.tenant.allowClientCancellation) {
+    return `${base}\n\nPara cancelar: ${buildCancelUrl(appt.tenant.slug, appt.id)}`
+  }
+  return base
 }
 
 function buildCancellationMessage(appt: AppointmentNotifData): string {
@@ -113,8 +119,7 @@ async function dispatchNotification(opts: {
   const settings = await getWebhookSettings(opts.tenantId)
 
   let sent = false
-  let channel: NotifChannel = NotifChannel.WHATSAPP
-  let errorMsg: string | undefined
+  const channel: NotifChannel = NotifChannel.WHATSAPP
 
   if (opts.phone && settings?.zapiInstance && settings.zapiToken) {
     const clientToken = process.env.ZAPI_CLIENT_TOKEN ?? settings.zapiToken

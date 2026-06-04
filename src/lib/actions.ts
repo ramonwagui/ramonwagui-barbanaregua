@@ -88,6 +88,16 @@ export async function disconnectMercadoPago() {
   revalidatePath("/configuracoes")
 }
 
+/** Liga/desliga o cancelamento self-service pelo cliente. */
+export async function updateClientCancellation(enabled: boolean) {
+  const session = await requireTenantOwner()
+  await prisma.tenant.update({
+    where: { id: session.user.tenantId! },
+    data: { allowClientCancellation: enabled },
+  })
+  revalidatePath("/configuracoes")
+}
+
 // ─── Services ────────────────────────────────────────────────
 
 export async function createService(data: {

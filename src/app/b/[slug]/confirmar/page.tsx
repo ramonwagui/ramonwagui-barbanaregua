@@ -125,6 +125,14 @@ export default async function ConfirmarPage({
             ← Voltar para a barbearia
           </button>
         </Link>
+
+        {appointment.tenant.allowClientCancellation && (
+          <Link href={`/b/${slug}/cancelar?id=${appointment.id}`}>
+            <button className="w-full mt-3 py-2.5 text-zinc-500 hover:text-zinc-300 text-xs font-medium transition-all">
+              Precisa cancelar este agendamento?
+            </button>
+          </Link>
+        )}
       </div>
     </div>
   )

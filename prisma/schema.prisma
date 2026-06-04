@@ -30,6 +30,9 @@ model Tenant {
   depositExpiryMinutes Int     @default(20) // tempo p/ pagar o PIX antes de liberar o slot
   cancelRefundHours    Int     @default(24) // antecedência mínima p/ estorno
 
+  // Cancelamento self-service pelo cliente (cada salão decide se habilita)
+  allowClientCancellation Boolean @default(false)
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
