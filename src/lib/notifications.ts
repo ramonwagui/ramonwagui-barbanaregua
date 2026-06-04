@@ -3,6 +3,17 @@ import { NotifChannel, NotifType, NotifStatus } from "@prisma/client"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 
+/**
+ * Envio de notificações por WhatsApp.
+ *
+ * Provider principal: WhatsApp Cloud API (oficial da Meta), usando um número
+ * CENTRAL da plataforma e TEMPLATES aprovados (obrigatório para mensagens
+ * proativas). Cada notificação mapeia para um template e a ordem das variáveis.
+ *
+ * Fallback: Z-API por salão (texto livre), caso o salão tenha o próprio número
+ * configurado em WebhookSetting e a Cloud API não esteja disponível.
+ */
+
 interface AppointmentNotifData {
   id: string
   tenantId: string
@@ -14,6 +25,10 @@ interface AppointmentNotifData {
   services: Array<{ service: { name: string } }>
   totalPrice: unknown
 }
+
+// ─────────────────────────────────────────────
+// Helpers de formatação
+// ─────────────────────────────────────────────
 
 function buildCancelUrl(slug: string, appointmentId: string): string {
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
@@ -28,22 +43,34 @@ function formatPrice(price: unknown): string {
 }
 
 function buildBookingUrl(slug: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
+    /\/$/,
+    ""
+  )
   return `${base}/b/${slug}`
 }
 
-function buildConfirmationMessage(appt: AppointmentNotifData): string {
-  const clientName = appt.guestName ?? "Cliente"
-  const barberName = appt.barber.user.name ?? "Barbeiro"
-  const serviceNames = appt.services.map((s) => s.service.name).join(" + ")
-  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
-  const price = formatPrice(appt.totalPrice)
+function clientName(appt: AppointmentNotifData): string {
+  return appt.guestName ?? "Cliente"
+}
+function barberName(appt: AppointmentNotifData): string {
+  return appt.barber.user.name ?? "Barbeiro"
+}
+function serviceNames(appt: AppointmentNotifData): string {
+  return appt.services.map((s) => s.service.name).join(" + ")
+}
 
+// ─────────────────────────────────────────────
+// Texto livre (fallback Z-API e log legível)
+// ─────────────────────────────────────────────
+
+function buildConfirmationMessage(appt: AppointmentNotifData): string {
+  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
   const base =
-    `Olá ${clientName}! ✂️ Seu agendamento foi confirmado na ${appt.tenant.name}.\n` +
+    `Olá ${clientName(appt)}! ✂️ Seu agendamento foi confirmado na ${appt.tenant.name}.\n` +
     `📅 ${dateStr}\n` +
-    `✂️ ${serviceNames} com ${barberName}\n` +
-    `💰 ${price}`
+    `✂️ ${serviceNames(appt)} com ${barberName(appt)}\n` +
+    `💰 ${formatPrice(appt.totalPrice)}`
 
   if (appt.tenant.allowClientCancellation) {
     return `${base}\n\nPara cancelar: ${buildCancelUrl(appt.tenant.slug, appt.id)}`
@@ -52,14 +79,11 @@ function buildConfirmationMessage(appt: AppointmentNotifData): string {
 }
 
 function buildReminderMessage(appt: AppointmentNotifData): string {
-  const barberName = appt.barber.user.name ?? "Barbeiro"
-  const serviceNames = appt.services.map((s) => s.service.name).join(" + ")
   const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
-
   const base =
-    `Lembrete! ✂️ Amanhã você tem agendamento na ${appt.tenant.name}.\n` +
+    `Lembrete! ✂️ Você tem agendamento na ${appt.tenant.name}.\n` +
     `📅 ${dateStr}\n` +
-    `✂️ ${serviceNames} com ${barberName}`
+    `✂️ ${serviceNames(appt)} com ${barberName(appt)}`
 
   if (appt.tenant.allowClientCancellation) {
     return `${base}\n\nPara cancelar: ${buildCancelUrl(appt.tenant.slug, appt.id)}`
@@ -68,16 +92,137 @@ function buildReminderMessage(appt: AppointmentNotifData): string {
 }
 
 function buildCancellationMessage(appt: AppointmentNotifData): string {
-  const clientName = appt.guestName ?? "Cliente"
   const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
-  const bookingUrl = buildBookingUrl(appt.tenant.slug)
-
   return (
-    `Olá ${clientName}, seu agendamento em ${appt.tenant.name} foi cancelado.\n` +
+    `Olá ${clientName(appt)}, seu agendamento em ${appt.tenant.name} foi cancelado.\n` +
     `📅 ${dateStr}\n\n` +
-    `Para reagendar: ${bookingUrl}`
+    `Para reagendar: ${buildBookingUrl(appt.tenant.slug)}`
   )
 }
+
+// ─────────────────────────────────────────────
+// WhatsApp Cloud API (oficial, número central)
+// ─────────────────────────────────────────────
+
+const TEMPLATES = {
+  confirmation: process.env.WHATSAPP_TEMPLATE_CONFIRMATION ?? "barbearia_confirmacao",
+  reminder: process.env.WHATSAPP_TEMPLATE_REMINDER ?? "barbearia_lembrete",
+  cancellation: process.env.WHATSAPP_TEMPLATE_CANCELLATION ?? "barbearia_cancelamento",
+}
+const TEMPLATE_LANG = process.env.WHATSAPP_TEMPLATE_LANG ?? "pt_BR"
+const GRAPH_VERSION = "v21.0"
+
+function isCloudApiConfigured(): boolean {
+  return (
+    !!process.env.WHATSAPP_ACCESS_TOKEN && !!process.env.WHATSAPP_PHONE_NUMBER_ID
+  )
+}
+
+/**
+ * Normaliza o telefone para o formato esperado pela Meta (DDI+DDD+número, só
+ * dígitos). Números locais brasileiros (10–11 dígitos) recebem o DDI 55.
+ */
+function toWhatsAppNumber(raw: string): string {
+  let d = raw.replace(/\D/g, "")
+  if (d.length <= 11) d = `55${d}`
+  return d
+}
+
+/** Variáveis de cada template, na ordem exata em que foram aprovados. */
+function templateParams(
+  appt: AppointmentNotifData,
+  type: NotifType
+): string[] {
+  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy", { locale: ptBR })
+  const timeStr = format(appt.scheduledAt, "HH:mm")
+  switch (type) {
+    case NotifType.BOOKING_CONFIRMATION:
+      // {{1}} cliente, {{2}} salão, {{3}} data, {{4}} hora, {{5}} serviço, {{6}} barbeiro
+      return [
+        clientName(appt),
+        appt.tenant.name,
+        dateStr,
+        timeStr,
+        serviceNames(appt),
+        barberName(appt),
+      ]
+    case NotifType.BOOKING_REMINDER_24H:
+      return [
+        clientName(appt),
+        appt.tenant.name,
+        dateStr,
+        timeStr,
+        serviceNames(appt),
+        barberName(appt),
+      ]
+    case NotifType.BOOKING_CANCELLED:
+      // {{1}} cliente, {{2}} salão, {{3}} data, {{4}} hora
+      return [clientName(appt), appt.tenant.name, dateStr, timeStr]
+    default:
+      return []
+  }
+}
+
+function templateNameFor(type: NotifType): string | null {
+  switch (type) {
+    case NotifType.BOOKING_CONFIRMATION:
+      return TEMPLATES.confirmation
+    case NotifType.BOOKING_REMINDER_24H:
+      return TEMPLATES.reminder
+    case NotifType.BOOKING_CANCELLED:
+      return TEMPLATES.cancellation
+    default:
+      return null
+  }
+}
+
+async function sendViaCloudApi(
+  phone: string,
+  templateName: string,
+  params: string[]
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: toWhatsAppNumber(phone),
+          type: "template",
+          template: {
+            name: templateName,
+            language: { code: TEMPLATE_LANG },
+            components: params.length
+              ? [
+                  {
+                    type: "body",
+                    parameters: params.map((text) => ({ type: "text", text })),
+                  },
+                ]
+              : [],
+          },
+        }),
+      }
+    )
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      console.error("[CloudAPI] envio falhou:", res.status, body.slice(0, 300))
+    }
+    return res.ok
+  } catch (err) {
+    console.error("[CloudAPI] erro:", err)
+    return false
+  }
+}
+
+// ─────────────────────────────────────────────
+// Z-API (fallback por salão)
+// ─────────────────────────────────────────────
 
 async function getWebhookSettings(tenantId: string) {
   return prisma.webhookSetting.findUnique({ where: { tenantId } })
@@ -109,80 +254,77 @@ async function sendViaZApi(
   }
 }
 
+// ─────────────────────────────────────────────
+// Dispatch
+// ─────────────────────────────────────────────
+
 async function dispatchNotification(opts: {
-  tenantId: string
-  appointmentId: string
-  phone: string | null | undefined
-  body: string
+  appt: AppointmentNotifData
   type: NotifType
+  /** Texto legível: usado como fallback Z-API e gravado no log. */
+  body: string
 }) {
-  const settings = await getWebhookSettings(opts.tenantId)
-
+  const { appt, type, body } = opts
+  const phone = appt.guestPhone
   let sent = false
-  const channel: NotifChannel = NotifChannel.WHATSAPP
 
-  if (opts.phone && settings?.zapiInstance && settings.zapiToken) {
-    const clientToken = process.env.ZAPI_CLIENT_TOKEN ?? settings.zapiToken
-    sent = await sendViaZApi(
-      opts.phone,
-      opts.body,
-      settings.zapiInstance,
-      settings.zapiToken,
-      clientToken
-    )
+  // 1) Cloud API (oficial, número central) — via template aprovado.
+  const templateName = templateNameFor(type)
+  if (phone && templateName && isCloudApiConfigured()) {
+    sent = await sendViaCloudApi(phone, templateName, templateParams(appt, type))
+  }
+
+  // 2) Fallback: Z-API do próprio salão (texto livre).
+  if (!sent && phone) {
+    const settings = await getWebhookSettings(appt.tenantId)
+    if (settings?.zapiInstance && settings.zapiToken) {
+      const clientToken = process.env.ZAPI_CLIENT_TOKEN ?? settings.zapiToken
+      sent = await sendViaZApi(
+        phone,
+        body,
+        settings.zapiInstance,
+        settings.zapiToken,
+        clientToken
+      )
+    }
   }
 
   await prisma.notification.create({
     data: {
-      tenantId: opts.tenantId,
-      appointmentId: opts.appointmentId,
-      channel,
-      type: opts.type,
-      recipientPhone: opts.phone ?? undefined,
-      body: opts.body,
+      tenantId: appt.tenantId,
+      appointmentId: appt.id,
+      channel: NotifChannel.WHATSAPP,
+      type,
+      recipientPhone: phone ?? undefined,
+      body,
       status: sent ? NotifStatus.SENT : NotifStatus.FAILED,
       sentAt: sent ? new Date() : undefined,
-      errorMsg: sent ? undefined : "WhatsApp não configurado ou falhou",
+      errorMsg: sent ? undefined : "WhatsApp não enviado (Cloud API/Z-API)",
     },
   })
 }
 
 export async function sendBookingConfirmation(appt: AppointmentNotifData) {
-  const message = buildConfirmationMessage(appt)
-  const phone = appt.guestPhone
-
   // Fire and forget — não bloqueia a criação do agendamento
   dispatchNotification({
-    tenantId: appt.tenantId,
-    appointmentId: appt.id,
-    phone,
-    body: message,
+    appt,
     type: NotifType.BOOKING_CONFIRMATION,
+    body: buildConfirmationMessage(appt),
   }).catch(console.error)
 }
 
 export async function sendBookingReminder(appt: AppointmentNotifData) {
-  const message = buildReminderMessage(appt)
-  const phone = appt.guestPhone
-
   await dispatchNotification({
-    tenantId: appt.tenantId,
-    appointmentId: appt.id,
-    phone,
-    body: message,
+    appt,
     type: NotifType.BOOKING_REMINDER_24H,
+    body: buildReminderMessage(appt),
   })
 }
 
 export async function sendBookingCancellation(appt: AppointmentNotifData) {
-  const message = buildCancellationMessage(appt)
-  const phone = appt.guestPhone
-
   dispatchNotification({
-    tenantId: appt.tenantId,
-    appointmentId: appt.id,
-    phone,
-    body: message,
+    appt,
     type: NotifType.BOOKING_CANCELLED,
+    body: buildCancellationMessage(appt),
   }).catch(console.error)
 }
