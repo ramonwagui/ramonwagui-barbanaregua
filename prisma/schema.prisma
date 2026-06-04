@@ -47,6 +47,7 @@ model Tenant {
   notifTemplates NotifTemplate[]
   webhookSetting WebhookSetting?
   banners        Banner[]
+  mercadoPago    MercadoPagoConnection?
 
   @@index([slug])
 }
@@ -491,4 +492,27 @@ model GlobalConfig {
   platformLogoUrl String?
   platformName   String   @default("Barbanaregua")
   updatedAt      DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// MERCADO PAGO — CONEXÃO OAUTH POR SALÃO (MARKETPLACE)
+// ─────────────────────────────────────────────
+// Cada salão conecta a própria conta do Mercado Pago via OAuth. O sinal
+// (depósito) é cobrado com o access_token DO SALÃO, caindo direto na conta
+// dele. Tokens são guardados CRIPTOGRAFADOS (AES-256-GCM) — ver src/lib/crypto.ts.
+
+model MercadoPagoConnection {
+  id           String   @id @default(cuid())
+  tenantId     String   @unique
+  mpUserId     String // user_id do vendedor no Mercado Pago
+  mpNickname   String? // p/ exibir "Conectado como ..."
+  accessToken  String   @db.Text // CRIPTOGRAFADO
+  refreshToken String   @db.Text // CRIPTOGRAFADO
+  publicKey    String?
+  expiresAt    DateTime // quando o access_token expira
+  scope        String?
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

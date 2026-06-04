@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { createHmac, timingSafeEqual } from "crypto"
-import { getPayment } from "@/lib/mercadopago"
 import { reconcilePayment } from "@/lib/payment-reconcile"
 import { prisma } from "@/lib/prisma"
 
@@ -39,22 +38,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Assinatura inválida" }, { status: 401 })
     }
 
-    // dataId é o id do pagamento NO Mercado Pago. Mapeia p/ nosso Payment via
-    // external_reference (que é o id do nosso Payment).
-    const mp = await getPayment(dataId)
-    if (!mp.externalReference) {
-      return NextResponse.json({ ignored: true }, { status: 200 })
-    }
-
-    const exists = await prisma.payment.findUnique({
-      where: { id: mp.externalReference },
+    // dataId é o id do pagamento NO Mercado Pago. Como cada salão usa a própria
+    // conta (token), não dá para consultar o MP antes de saber o tenant. Mapeia
+    // pelo Payment local via providerPaymentId (gravado na criação do PIX);
+    // reconcilePayment resolve o token do salão internamente.
+    const payment = await prisma.payment.findFirst({
+      where: { providerPaymentId: dataId },
       select: { id: true },
     })
-    if (!exists) {
+    if (!payment) {
+      // Ainda não persistido (corrida) ou não é nosso → ignora; o polling/retry cobre.
       return NextResponse.json({ ignored: true }, { status: 200 })
     }
 
-    await reconcilePayment(mp.externalReference)
+    await reconcilePayment(payment.id)
 
     return NextResponse.json({ received: true }, { status: 200 })
   } catch (err) {

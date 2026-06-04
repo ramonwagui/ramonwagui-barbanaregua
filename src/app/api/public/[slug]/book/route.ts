@@ -8,10 +8,8 @@ import {
 import { sendBookingConfirmation } from "@/lib/notifications"
 import { isSlotAvailable } from "@/lib/availability"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
-import {
-  createPixPayment,
-  isMercadoPagoConfigured,
-} from "@/lib/mercadopago"
+import { createPixPayment } from "@/lib/mercadopago"
+import { getTenantMpToken, MpNotConnectedError } from "@/lib/mp-account"
 import { addMinutes } from "date-fns"
 import { Prisma, Service } from "@prisma/client"
 import { ZodError } from "zod"
@@ -91,9 +89,22 @@ export async function POST(
     let payerEmail = ""
     let depositAmount: Prisma.Decimal | null = null
     let paymentExpiresAt: Date | null = null
+    let mpAccessToken = ""
 
     if (requireDeposit) {
-      if (!isMercadoPagoConfigured()) {
+      // O salão precisa ter conectado a própria conta do Mercado Pago para
+      // que o sinal caia direto na conta DELE. Resolve o token (com refresh)
+      // antes de criar a reserva — se não estiver conectado, nem cria.
+      try {
+        mpAccessToken = await getTenantMpToken(tenant.id)
+      } catch (err) {
+        if (err instanceof MpNotConnectedError) {
+          return NextResponse.json(
+            { error: "Pagamento indisponível: a barbearia ainda não conectou o Mercado Pago." },
+            { status: 503 }
+          )
+        }
+        console.error("[BOOK] Falha ao resolver token MP:", err)
         return NextResponse.json(
           { error: "Pagamento indisponível no momento. Tente novamente mais tarde." },
           { status: 503 }
@@ -201,14 +212,17 @@ export async function POST(
         },
       })
 
-      const pix = await createPixPayment({
-        amount: Number(depositAmount!),
-        description: `Sinal — ${tenant.name}`,
-        payerEmail,
-        externalReference: payment.id,
-        expiresAt: paymentExpiresAt!,
-        notificationUrl: `${baseUrl}/api/webhooks/mercadopago`,
-      })
+      const pix = await createPixPayment(
+        {
+          amount: Number(depositAmount!),
+          description: `Sinal — ${tenant.name}`,
+          payerEmail,
+          externalReference: payment.id,
+          expiresAt: paymentExpiresAt!,
+          notificationUrl: `${baseUrl}/api/webhooks/mercadopago`,
+        },
+        mpAccessToken
+      )
 
       await prisma.payment.update({
         where: { id: payment.id },

@@ -11,7 +11,13 @@ type DepositData = {
   cancelRefundHours: number
 }
 
-export default function DepositoClient({ initial }: { initial: DepositData }) {
+export default function DepositoClient({
+  initial,
+  connected,
+}: {
+  initial: DepositData
+  connected: boolean
+}) {
   const [form, setForm] = useState(initial)
   const [isPending, startTransition] = useTransition()
   const [saved, setSaved] = useState(false)
@@ -43,8 +49,21 @@ export default function DepositoClient({ initial }: { initial: DepositData }) {
       </div>
 
       <form onSubmit={handleSubmit} className="px-5 py-5 space-y-5">
+        {!connected && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <p className="text-amber-300 text-xs">
+              Conecte sua conta do Mercado Pago acima para poder exigir sinal. Sem
+              a conexão, o sinal não pode ser cobrado.
+            </p>
+          </div>
+        )}
+
         {/* Toggle */}
-        <label className="flex items-center justify-between cursor-pointer">
+        <label
+          className={`flex items-center justify-between ${
+            connected ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+          }`}
+        >
           <div>
             <p className="text-white text-sm font-medium">Exigir sinal para agendar</p>
             <p className="text-zinc-600 text-xs mt-0.5">
@@ -55,8 +74,12 @@ export default function DepositoClient({ initial }: { initial: DepositData }) {
             type="button"
             role="switch"
             aria-checked={form.requireDeposit}
-            onClick={() => setForm((f) => ({ ...f, requireDeposit: !f.requireDeposit }))}
-            className="relative w-12 h-6 rounded-full transition-colors shrink-0 ml-4"
+            disabled={!connected}
+            onClick={() =>
+              connected &&
+              setForm((f) => ({ ...f, requireDeposit: !f.requireDeposit }))
+            }
+            className="relative w-12 h-6 rounded-full transition-colors shrink-0 ml-4 disabled:cursor-not-allowed"
             style={{ backgroundColor: form.requireDeposit ? "#f59e0b" : "#3f3f46" }}
           >
             <span

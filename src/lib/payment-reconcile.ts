@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { getPayment, refundPayment } from "@/lib/mercadopago"
+import { getTenantMpToken } from "@/lib/mp-account"
 import { sendBookingConfirmation } from "@/lib/notifications"
 
 /**
@@ -25,7 +26,9 @@ export async function reconcilePayment(
 
   let mp
   try {
-    mp = await getPayment(payment.providerPaymentId)
+    // O pagamento pertence à conta do salão → usa o access_token DELE.
+    const token = await getTenantMpToken(payment.tenantId)
+    mp = await getPayment(payment.providerPaymentId, token)
   } catch (err) {
     console.error("[reconcilePayment] getPayment falhou:", err)
     return "PENDING"
@@ -109,6 +112,7 @@ export async function refundDepositForCancellation(
     where: { id: appointmentId },
     select: {
       scheduledAt: true,
+      tenantId: true,
       tenant: { select: { cancelRefundHours: true } },
       payment: { select: { id: true, status: true, providerPaymentId: true } },
     },
@@ -122,7 +126,9 @@ export async function refundDepositForCancellation(
   if (hoursUntil < appt.tenant.cancelRefundHours) return "KEPT"
 
   if (payment.providerPaymentId) {
-    await refundPayment(payment.providerPaymentId)
+    // Estorno acontece na conta do salão → usa o token DELE.
+    const token = await getTenantMpToken(appt.tenantId)
+    await refundPayment(payment.providerPaymentId, token)
   }
   await prisma.payment.update({
     where: { id: payment.id },

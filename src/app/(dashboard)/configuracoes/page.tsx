@@ -5,8 +5,10 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import ConfiguracoesClient from "./configuracoes-client"
 import DepositoClient from "./deposito-client"
+import MercadoPagoClient from "./mercadopago-client"
 import BookingLinkCard from "@/components/booking-link-card"
 import AnunciosClient from "./anuncios-client"
+import { getTenantConnectionInfo } from "@/lib/mp-account"
 
 export default async function ConfiguracoesPage() {
   const session = await auth()
@@ -14,7 +16,7 @@ export default async function ConfiguracoesPage() {
 
   const isOwner = session.user.role !== "BARBER"
 
-  const [tenant, banners] = await Promise.all([
+  const [tenant, banners, mpInfo] = await Promise.all([
     prisma.tenant.findUnique({
       where: { id: session.user.tenantId },
       include: { businessHours: { orderBy: { dayOfWeek: "asc" } } },
@@ -25,6 +27,9 @@ export default async function ConfiguracoesPage() {
           orderBy: { sortOrder: "asc" },
         })
       : Promise.resolve([]),
+    isOwner
+      ? getTenantConnectionInfo(session.user.tenantId)
+      : Promise.resolve(null),
   ])
 
   if (!tenant) redirect("/onboarding")
@@ -56,16 +61,28 @@ export default async function ConfiguracoesPage() {
         isOwner={isOwner}
       />
 
-      {/* Sinal / Depósito (apenas owner) */}
+      {/* Recebimento Mercado Pago + Sinal / Depósito (apenas owner) */}
       {isOwner && (
-        <DepositoClient
-          initial={{
-            requireDeposit: tenant.requireDeposit,
-            depositPercent: tenant.depositPercent,
-            depositExpiryMinutes: tenant.depositExpiryMinutes,
-            cancelRefundHours: tenant.cancelRefundHours,
-          }}
-        />
+        <>
+          <MercadoPagoClient
+            info={{
+              connected: mpInfo?.connected ?? false,
+              nickname: mpInfo?.nickname ?? null,
+              connectedAt: mpInfo?.connectedAt
+                ? mpInfo.connectedAt.toISOString()
+                : null,
+            }}
+          />
+          <DepositoClient
+            initial={{
+              requireDeposit: tenant.requireDeposit,
+              depositPercent: tenant.depositPercent,
+              depositExpiryMinutes: tenant.depositExpiryMinutes,
+              cancelRefundHours: tenant.cancelRefundHours,
+            }}
+            connected={mpInfo?.connected ?? false}
+          />
+        </>
       )}
 
       {/* Banners de anúncio (apenas owner) */}

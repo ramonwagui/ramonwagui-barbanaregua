@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { AppointmentStatus } from "@prisma/client"
 import { refundDepositForCancellation } from "@/lib/payment-reconcile"
+import { disconnect as disconnectMp } from "@/lib/mp-account"
 
 async function requireTenantOwner() {
   const session = await auth()
@@ -77,6 +78,13 @@ export async function updateDepositSettings(data: {
       cancelRefundHours: Math.max(0, Math.round(data.cancelRefundHours)),
     },
   })
+  revalidatePath("/configuracoes")
+}
+
+/** Desconecta a conta do Mercado Pago do salão (remove os tokens). */
+export async function disconnectMercadoPago() {
+  const session = await requireTenantOwner()
+  await disconnectMp(session.user.tenantId!)
   revalidatePath("/configuracoes")
 }
 
