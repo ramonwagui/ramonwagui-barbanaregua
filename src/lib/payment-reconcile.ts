@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { getPayment, refundPayment } from "@/lib/mercadopago"
 import { getTenantMpToken } from "@/lib/mp-account"
+import { activateClientPackage } from "@/lib/packages"
 import { sendBookingConfirmation } from "@/lib/notifications"
 
 /**
@@ -35,6 +36,12 @@ export async function reconcilePayment(
   }
 
   if (mp.status === "approved") {
+    // Pagamento de pacote pré-pago → ativa os créditos; senão, confirma o agendamento.
+    const isPackage = await prisma.clientPackage.findUnique({
+      where: { paymentId },
+      select: { id: true },
+    })
+    if (isPackage) return activateClientPackage(paymentId)
     return markPaid(paymentId)
   }
 
@@ -65,7 +72,7 @@ export async function markPaid(
       where: { id: paymentId },
       select: { id: true, status: true, appointmentId: true },
     })
-    if (!payment || payment.status === "PAID") return null
+    if (!payment || payment.status === "PAID" || !payment.appointmentId) return null
 
     await tx.payment.update({
       where: { id: paymentId },

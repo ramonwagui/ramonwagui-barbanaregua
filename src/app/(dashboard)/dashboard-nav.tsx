@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   LayoutDashboard, CalendarDays, Users, Scissors,
-  UserCog, DollarSign, Settings, LogOut, Menu, X,
+  UserCog, DollarSign, Settings, LogOut, Menu, X, Package,
 } from "lucide-react"
 
 const NAV_ITEMS = [
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/servicos", label: "Serviços", icon: Scissors },
+  { href: "/pacotes", label: "Pacotes", icon: Package, ownerOnly: true },
   { href: "/barbeiros", label: "Barbeiros", icon: UserCog },
   { href: "/financeiro", label: "Financeiro", icon: DollarSign, ownerOnly: true },
   { href: "/configuracoes", label: "Configurações", icon: Settings },

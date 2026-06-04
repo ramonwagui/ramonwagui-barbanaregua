@@ -10,6 +10,8 @@ import { isSlotAvailable } from "@/lib/availability"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 import { createPixPayment } from "@/lib/mercadopago"
 import { getTenantMpToken, MpNotConnectedError } from "@/lib/mp-account"
+import { getLoyaltyStatus, normalizeLoyaltyPhone } from "@/lib/loyalty"
+import { hasUsableCredit, consumeCreditForService } from "@/lib/packages"
 import { addMinutes } from "date-fns"
 import { Prisma, Service } from "@prisma/client"
 import { ZodError } from "zod"
@@ -53,10 +55,41 @@ export async function POST(
     }
 
     const totalDuration = services.reduce((sum, s) => sum + s.durationMinutes, 0)
-    const totalPrice = services.reduce(
+    let totalPrice = services.reduce(
       (sum, s) => sum.plus(s.price),
       new Prisma.Decimal(0)
     )
+
+    // ── Fidelidade: resgate de serviço grátis (revalidado no servidor) ──
+    let loyaltyRewardServiceId: string | null = null
+    if (body?.redeemLoyalty === true && data.guestPhone) {
+      const status = await getLoyaltyStatus(tenant.id, data.guestPhone)
+      if (
+        status.enabled &&
+        status.available &&
+        status.rewardServiceId &&
+        data.serviceIds.includes(status.rewardServiceId)
+      ) {
+        loyaltyRewardServiceId = status.rewardServiceId
+        const rewardSvc = services.find((s) => s.id === loyaltyRewardServiceId)
+        if (rewardSvc) totalPrice = totalPrice.minus(rewardSvc.price)
+      }
+    }
+
+    // ── Pacote pré-pago: usa 1 crédito para um dos serviços (revalidado) ──
+    let packageServiceId: string | null = null
+    if (body?.usePackage === true && data.guestPhone) {
+      for (const sid of data.serviceIds) {
+        if (sid === loyaltyRewardServiceId) continue // já está grátis
+        if (await hasUsableCredit(tenant.id, data.guestPhone, sid)) {
+          packageServiceId = sid
+          const svc = services.find((s) => s.id === sid)
+          if (svc) totalPrice = totalPrice.minus(svc.price)
+          break
+        }
+      }
+    }
+
     const scheduledAt = new Date(data.scheduledAt)
     const endsAt = addMinutes(scheduledAt, totalDuration)
 
@@ -85,7 +118,8 @@ export async function POST(
     }
 
     // ── Configuração de sinal (depósito) da barbearia ──
-    const requireDeposit = tenant.requireDeposit
+    // Se a fidelidade zerou o total (só o serviço grátis), não cobra sinal.
+    const requireDeposit = tenant.requireDeposit && totalPrice.gt(0)
     let payerEmail = ""
     let depositAmount: Prisma.Decimal | null = null
     let paymentExpiresAt: Date | null = null
@@ -167,7 +201,11 @@ export async function POST(
             services: {
               create: services.map((s) => ({
                 serviceId: s.id,
-                price: s.price,
+                // serviço grátis por fidelidade OU pago por crédito de pacote → 0
+                price:
+                  s.id === loyaltyRewardServiceId || s.id === packageServiceId
+                    ? new Prisma.Decimal(0)
+                    : s.price,
                 durationMinutes: s.durationMinutes,
               })),
             },
@@ -180,6 +218,28 @@ export async function POST(
         })
       }
     )
+
+    // ── Pacote: consome 1 crédito após criar o agendamento ──
+    if (packageServiceId && data.guestPhone) {
+      await consumeCreditForService(tenant.id, data.guestPhone, packageServiceId).catch(
+        console.error
+      )
+    }
+
+    // ── Fidelidade: consome 1 recompensa após criar o agendamento ──
+    if (loyaltyRewardServiceId && data.guestPhone) {
+      await prisma.loyaltyCard
+        .update({
+          where: {
+            tenantId_clientPhone: {
+              tenantId: tenant.id,
+              clientPhone: normalizeLoyaltyPhone(data.guestPhone),
+            },
+          },
+          data: { rewardsRedeemed: { increment: 1 } },
+        })
+        .catch(console.error)
+    }
 
     // ── Sem sinal: fluxo original (confirma na hora) ──
     if (!requireDeposit) {

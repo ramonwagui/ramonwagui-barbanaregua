@@ -23,6 +23,7 @@ export default async function ServicosPage() {
         durationMinutes: s.durationMinutes,
         price: Number(s.price),
         isActive: s.isActive,
+        isUpsellSuggestion: s.isUpsellSuggestion,
       }))}
       isOwner={session.user.role !== "BARBER"}
     />

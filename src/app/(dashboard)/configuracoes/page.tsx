@@ -7,6 +7,8 @@ import ConfiguracoesClient from "./configuracoes-client"
 import DepositoClient from "./deposito-client"
 import MercadoPagoClient from "./mercadopago-client"
 import CancelamentoClient from "./cancelamento-client"
+import UpsellClient from "./upsell-client"
+import FidelidadeClient from "./fidelidade-client"
 import BookingLinkCard from "@/components/booking-link-card"
 import AnunciosClient from "./anuncios-client"
 import { getTenantConnectionInfo } from "@/lib/mp-account"
@@ -17,7 +19,7 @@ export default async function ConfiguracoesPage() {
 
   const isOwner = session.user.role !== "BARBER"
 
-  const [tenant, banners, mpInfo] = await Promise.all([
+  const [tenant, banners, mpInfo, activeServices] = await Promise.all([
     prisma.tenant.findUnique({
       where: { id: session.user.tenantId },
       include: { businessHours: { orderBy: { dayOfWeek: "asc" } } },
@@ -31,6 +33,13 @@ export default async function ConfiguracoesPage() {
     isOwner
       ? getTenantConnectionInfo(session.user.tenantId)
       : Promise.resolve(null),
+    isOwner
+      ? prisma.service.findMany({
+          where: { tenantId: session.user.tenantId, isActive: true },
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+          select: { id: true, name: true },
+        })
+      : Promise.resolve([]),
   ])
 
   if (!tenant) redirect("/onboarding")
@@ -86,6 +95,15 @@ export default async function ConfiguracoesPage() {
           <CancelamentoClient
             initial={tenant.allowClientCancellation}
             cancelRefundHours={tenant.cancelRefundHours}
+          />
+          <UpsellClient initial={tenant.upsellEnabled} />
+          <FidelidadeClient
+            initial={{
+              enabled: tenant.loyaltyEnabled,
+              threshold: tenant.loyaltyThreshold,
+              rewardServiceId: tenant.loyaltyRewardServiceId,
+            }}
+            services={activeServices}
           />
         </>
       )}

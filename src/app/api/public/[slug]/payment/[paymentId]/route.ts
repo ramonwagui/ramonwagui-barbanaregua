@@ -17,7 +17,7 @@ export async function GET(
     include: { appointment: { select: { id: true, status: true, paymentExpiresAt: true } } },
   })
 
-  if (!payment) {
+  if (!payment || !payment.appointment) {
     return NextResponse.json({ error: "Pagamento não encontrado" }, { status: 404 })
   }
 

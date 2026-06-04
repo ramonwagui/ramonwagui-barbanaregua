@@ -20,6 +20,7 @@ export async function GET(
         durationMinutes: true,
         price: true,
         imageUrl: true,
+        isUpsellSuggestion: true,
       },
     })
 
@@ -31,6 +32,7 @@ export async function GET(
         logoUrl: tenant.logoUrl,
         requireDeposit: tenant.requireDeposit,
         depositPercent: tenant.depositPercent,
+        upsellEnabled: tenant.upsellEnabled,
       },
       services,
     })

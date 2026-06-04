@@ -58,6 +58,10 @@ export default async function BookingHomePage({
     }),
   ])
 
+  const packagesCount = await prisma.servicePackage.count({
+    where: { tenantId: tenant.id, isActive: true, service: { isActive: true } },
+  })
+
   const leftBanners = getBannersForSide(activeBanners, "LEFT")
   const rightBanners = getBannersForSide(activeBanners, "RIGHT")
   const accent = tenant.primaryColor ?? "#f59e0b"
@@ -175,6 +179,15 @@ export default async function BookingHomePage({
             >
               Agendar agora →
             </Link>
+
+            {packagesCount > 0 && (
+              <Link
+                href={`/b/${slug}/pacotes`}
+                className="flex items-center justify-center w-full h-12 mt-3 text-zinc-200 font-medium text-sm rounded-xl border border-zinc-700 hover:border-zinc-500 transition-all"
+              >
+                Comprar pacote e economizar
+              </Link>
+            )}
 
             <p className="text-center text-zinc-700 text-xs mt-5">
               Powered by{" "}

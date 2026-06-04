@@ -11,6 +11,7 @@ type Service = {
   durationMinutes: number
   price: number
   isActive: boolean
+  isUpsellSuggestion: boolean
 }
 
 type FormData = {
@@ -18,9 +19,16 @@ type FormData = {
   description: string
   durationMinutes: number
   price: number
+  isUpsellSuggestion: boolean
 }
 
-const EMPTY_FORM: FormData = { name: "", description: "", durationMinutes: 30, price: 0 }
+const EMPTY_FORM: FormData = {
+  name: "",
+  description: "",
+  durationMinutes: 30,
+  price: 0,
+  isUpsellSuggestion: false,
+}
 
 export default function ServicosClient({
   services: initial,
@@ -47,6 +55,7 @@ export default function ServicosClient({
       description: service.description,
       durationMinutes: service.durationMinutes,
       price: service.price,
+      isUpsellSuggestion: service.isUpsellSuggestion,
     })
     setError(null)
     setModal({ type: "edit", service })
@@ -272,6 +281,23 @@ export default function ServicosClient({
                   />
                 </div>
               </div>
+
+              <label className="flex items-center justify-between gap-3 cursor-pointer rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+                <div>
+                  <p className="text-white text-sm font-medium">Sugerir como add-on</p>
+                  <p className="text-zinc-600 text-xs mt-0.5">
+                    Aparece como sugestão no bloco Adicione também do agendamento.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.isUpsellSuggestion}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, isUpsellSuggestion: e.target.checked }))
+                  }
+                  className="w-5 h-5 accent-amber-500 shrink-0"
+                />
+              </label>
 
               {error && (
                 <p className="text-red-400 text-sm bg-red-950/30 border border-red-800/50 rounded-lg px-3 py-2">

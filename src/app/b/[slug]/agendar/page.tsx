@@ -11,7 +11,7 @@ import BannerCarousel from "@/components/banner-carousel"
 
 type Banner = { id: string; imageUrl: string; clickUrl: string | null }
 
-type Service = { id: string; name: string; durationMinutes: number; price: number }
+type Service = { id: string; name: string; durationMinutes: number; price: number; isUpsellSuggestion?: boolean }
 type Barber = { id: string; bio: string | null; avatarUrl: string | null; user: { name: string | null } }
 type Slot = { startAt: string; endsAt: string }
 
@@ -38,6 +38,16 @@ export default function AgendarPage() {
   const [banners, setBanners] = useState<Banner[]>([])
   const [requireDeposit, setRequireDeposit] = useState(false)
   const [depositPercent, setDepositPercent] = useState(50)
+  const [upsellEnabled, setUpsellEnabled] = useState(false)
+  const [loyalty, setLoyalty] = useState<{
+    available: boolean
+    rewardServiceId: string | null
+    rewardServiceName: string | null
+  } | null>(null)
+  const [packageCredits, setPackageCredits] = useState<
+    { serviceId: string; serviceName: string; creditsLeft: number }[]
+  >([])
+  const [usePackage, setUsePackage] = useState(true)
 
   useEffect(() => {
     fetch(`/api/public/${slug}/services`)
@@ -48,6 +58,7 @@ export default function AgendarPage() {
           setRequireDeposit(true)
           setDepositPercent(d.tenant.depositPercent ?? 50)
         }
+        setUpsellEnabled(!!d.tenant?.upsellEnabled)
       })
     fetch(`/api/public/${slug}/banners`)
       .then((r) => r.json())
@@ -79,6 +90,33 @@ export default function AgendarPage() {
     }
   }, [step, slug, selectedBarber, selectedDate, selectedServices])
 
+  // Fidelidade: consulta o status quando o cliente informa o telefone.
+  useEffect(() => {
+    if (step !== 3) return
+    const phone = guestPhone.replace(/\D/g, "")
+    if (phone.length < 10) return
+    let cancelled = false
+    fetch(`/api/public/${slug}/loyalty?phone=${phone}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setLoyalty(d?.enabled ? d : null)
+      })
+      .catch(() => {
+        if (!cancelled) setLoyalty(null)
+      })
+    fetch(`/api/public/${slug}/packages/active?phone=${phone}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setPackageCredits(d?.credits ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setPackageCredits([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [step, guestPhone, slug])
+
   function toggleService(service: Service) {
     setSelectedServices((prev) =>
       prev.find((s) => s.id === service.id)
@@ -101,6 +139,8 @@ export default function AgendarPage() {
           guestName,
           guestPhone: guestPhone.replace(/\D/g, ""),
           guestEmail: guestEmail.trim() || undefined,
+          redeemLoyalty: rewardSelected,
+          usePackage: packageActive,
         }),
       })
       const data = await res.json()
@@ -123,8 +163,39 @@ export default function AgendarPage() {
 
   const totalPrice = selectedServices.reduce((s, sv) => s + Number(sv.price), 0)
   const totalDuration = selectedServices.reduce((s, sv) => s + sv.durationMinutes, 0)
-  const depositAmount = requireDeposit ? (totalPrice * depositPercent) / 100 : 0
-  const remainingAmount = totalPrice - depositAmount
+  const upsellSuggestions = upsellEnabled
+    ? services.filter(
+        (s) => s.isUpsellSuggestion && !selectedServices.some((x) => x.id === s.id)
+      )
+    : []
+  // Fidelidade: recompensa aplicável se o serviço grátis estiver selecionado.
+  const rewardSelected =
+    !!loyalty?.available &&
+    !!loyalty.rewardServiceId &&
+    selectedServices.some((s) => s.id === loyalty.rewardServiceId)
+  const loyaltyDiscount = rewardSelected
+    ? Number(selectedServices.find((s) => s.id === loyalty!.rewardServiceId)?.price ?? 0)
+    : 0
+
+  // Pacote pré-pago: 1 crédito cobre um serviço selecionado (≠ recompensa de fidelidade).
+  const packageApplicableServiceId =
+    selectedServices.find(
+      (s) =>
+        !(rewardSelected && s.id === loyalty?.rewardServiceId) &&
+        packageCredits.some((c) => c.serviceId === s.id && c.creditsLeft > 0)
+    )?.id ?? null
+  const packageActive = !!packageApplicableServiceId && usePackage
+  const packageDiscount = packageActive
+    ? Number(selectedServices.find((s) => s.id === packageApplicableServiceId)?.price ?? 0)
+    : 0
+
+  const discountedTotal = Math.max(0, totalPrice - loyaltyDiscount - packageDiscount)
+
+  const effectiveRequireDeposit = requireDeposit && discountedTotal > 0
+  const depositAmount = effectiveRequireDeposit
+    ? (discountedTotal * depositPercent) / 100
+    : 0
+  const remainingAmount = discountedTotal - depositAmount
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail.trim())
 
   const canAdvance =
@@ -134,7 +205,7 @@ export default function AgendarPage() {
     (step === 3 &&
       guestName.trim().length > 0 &&
       guestPhone.length >= 10 &&
-      (!requireDeposit || emailValid)) ||
+      (!effectiveRequireDeposit || emailValid)) ||
     step === 4
 
   return (
@@ -219,6 +290,34 @@ export default function AgendarPage() {
                 </button>
               )
             })}
+
+            {/* Upsell — Adicione também */}
+            {selectedServices.length > 0 && upsellSuggestions.length > 0 && (
+              <div className="pt-4">
+                <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-2">
+                  ✨ Adicione também
+                </p>
+                <div className="space-y-2">
+                  {upsellSuggestions.map((service) => (
+                    <button
+                      key={service.id}
+                      onClick={() => toggleService(service)}
+                      className="w-full text-left rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10 transition-all px-5 py-3.5 flex items-center justify-between"
+                    >
+                      <div>
+                        <p className="text-white text-sm font-medium">+ {service.name}</p>
+                        <p className="text-zinc-500 text-xs mt-0.5 flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {service.durationMinutes} min
+                        </p>
+                      </div>
+                      <span className="text-amber-400 font-bold text-sm shrink-0 ml-4">
+                        + R$ {Number(service.price).toFixed(2).replace(".", ",")}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -326,6 +425,42 @@ export default function AgendarPage() {
         {/* Step 3 — Dados do cliente */}
         {step === 3 && (
           <div className="space-y-5">
+            {loyalty?.available && loyalty.rewardServiceName && (
+              <div
+                className={`rounded-xl border px-4 py-3 ${
+                  rewardSelected
+                    ? "border-emerald-500/40 bg-emerald-500/10"
+                    : "border-amber-500/40 bg-amber-500/10"
+                }`}
+              >
+                <p className="text-sm font-medium text-white">
+                  🎁 Você tem 1 {loyalty.rewardServiceName} grátis!
+                </p>
+                <p className="text-xs mt-0.5 text-zinc-400">
+                  {rewardSelected
+                    ? "Será aplicado automaticamente neste agendamento."
+                    : `Adicione "${loyalty.rewardServiceName}" aos serviços para usar agora.`}
+                </p>
+              </div>
+            )}
+            {packageApplicableServiceId && (
+              <label className="flex items-center justify-between gap-3 cursor-pointer rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3">
+                <div>
+                  <p className="text-white text-sm font-medium">
+                    💳 Usar 1 crédito do seu pacote
+                  </p>
+                  <p className="text-zinc-400 text-xs mt-0.5">
+                    Cobre o serviço sem pagar agora.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={usePackage}
+                  onChange={(e) => setUsePackage(e.target.checked)}
+                  className="w-5 h-5 accent-emerald-500 shrink-0"
+                />
+              </label>
+            )}
             <div>
               <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-2">
                 Seu nome
@@ -353,7 +488,7 @@ export default function AgendarPage() {
                 Você receberá a confirmação no WhatsApp.
               </p>
             </div>
-            {requireDeposit && (
+            {effectiveRequireDeposit && (
               <div>
                 <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-2">
                   E-mail
@@ -404,6 +539,24 @@ export default function AgendarPage() {
                   </div>
                 </div>
               </div>
+              {rewardSelected && (
+                <div className="px-5 pt-3 flex justify-between items-center">
+                  <span className="text-emerald-400 text-sm">
+                    🎁 Fidelidade ({loyalty?.rewardServiceName} grátis)
+                  </span>
+                  <span className="text-emerald-400 font-medium text-sm">
+                    − R$ {loyaltyDiscount.toFixed(2).replace(".", ",")}
+                  </span>
+                </div>
+              )}
+              {packageActive && (
+                <div className="px-5 pt-3 flex justify-between items-center">
+                  <span className="text-emerald-400 text-sm">💳 Crédito do pacote</span>
+                  <span className="text-emerald-400 font-medium text-sm">
+                    − R$ {packageDiscount.toFixed(2).replace(".", ",")}
+                  </span>
+                </div>
+              )}
               <div className="px-5 py-4 flex justify-between items-center">
                 <span className="text-zinc-400 text-sm">Total</span>
                 <span
@@ -413,12 +566,12 @@ export default function AgendarPage() {
                     color: "#f59e0b",
                   }}
                 >
-                  R$ {totalPrice.toFixed(2).replace(".", ",")}
+                  R$ {discountedTotal.toFixed(2).replace(".", ",")}
                 </span>
               </div>
             </div>
 
-            {requireDeposit && (
+            {effectiveRequireDeposit && (
               <div className="bg-amber-500/5 rounded-xl border border-amber-500/30 px-5 py-4 space-y-2">
                 <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-1">
                   Sinal para confirmar
@@ -491,7 +644,7 @@ export default function AgendarPage() {
             >
               {submitting
                 ? "Processando..."
-                : requireDeposit
+                : effectiveRequireDeposit
                   ? `Pagar sinal de R$ ${depositAmount.toFixed(2).replace(".", ",")} →`
                   : "Confirmar agendamento →"}
             </button>
