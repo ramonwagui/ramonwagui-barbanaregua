@@ -9,7 +9,7 @@ const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
 type Schedule = { dayOfWeek: number; startTime: string; endTime: string; breakStart?: string; breakEnd?: string; isActive: boolean }
 type Barber = {
   id: string; isActive: boolean; bio: string; avatarUrl: string | null; todayCount: number
-  user: { name: string; email: string }; workSchedules: Schedule[]
+  user: { name: string; email: string; phone: string | null }; workSchedules: Schedule[]
 }
 type Modal =
   | { type: "add" }
@@ -36,12 +36,14 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
   // Add form
   const [addName, setAddName] = useState(""); const [addEmail, setAddEmail] = useState("")
   const [addPassword, setAddPassword] = useState(""); const [addBio, setAddBio] = useState("")
+  const [addPhone, setAddPhone] = useState("")
   const [showPwd, setShowPwd] = useState(false)
 
   // Edit form
   const [editName, setEditName] = useState("")
   const [editEmail, setEditEmail] = useState("")
   const [editBio, setEditBio] = useState("")
+  const [editPhone, setEditPhone] = useState("")
   const [editPassword, setEditPassword] = useState("")
   const [showEditPwd, setShowEditPwd] = useState(false)
 
@@ -49,7 +51,7 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
   const [scheduleRows, setScheduleRows] = useState<Schedule[]>(DEFAULT_SCHEDULE)
 
   function openAdd() {
-    setAddName(""); setAddEmail(""); setAddPassword(""); setAddBio(""); setShowPwd(false)
+    setAddName(""); setAddEmail(""); setAddPassword(""); setAddBio(""); setAddPhone(""); setShowPwd(false)
     setFormError(null); setModal({ type: "add" })
   }
 
@@ -57,6 +59,7 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
     setEditName(barber.user.name)
     setEditEmail(barber.user.email)
     setEditBio(barber.bio)
+    setEditPhone(barber.user.phone ?? "")
     setEditPassword("")
     setShowEditPwd(false)
     setFormError(null)
@@ -88,13 +91,13 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
       const res = await fetch("/api/dashboard/barbers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: addName, email: addEmail, password: addPassword, bio: addBio }),
+        body: JSON.stringify({ name: addName, email: addEmail, password: addPassword, bio: addBio, phone: addPhone }),
       })
       const data = await res.json()
       if (!res.ok) { setFormError(data.error ?? "Erro ao cadastrar"); return }
       setBarbers((prev) => [...prev, {
         id: data.barber.id, isActive: true, bio: addBio, avatarUrl: null, todayCount: 0,
-        user: { name: addName, email: addEmail },
+        user: { name: addName, email: addEmail, phone: addPhone || null },
         workSchedules: [1,2,3,4,5,6].map((d) => ({ dayOfWeek: d, startTime: "09:00", endTime: "18:00", breakStart: "12:00", breakEnd: "13:00", isActive: true })),
       }])
       setModal(null)
@@ -113,12 +116,13 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
           name: editName,
           email: editEmail,
           bio: editBio,
+          phone: editPhone,
           password: editPassword || undefined,
         }),
       })
       if (!res.ok) { const d = await res.json(); setFormError(d.error ?? "Erro ao salvar"); return }
       setBarbers((prev) => prev.map((b) => b.id === modal.barber.id
-        ? { ...b, bio: editBio, user: { name: editName, email: editEmail } } : b))
+        ? { ...b, bio: editBio, user: { name: editName, email: editEmail, phone: editPhone || null } } : b))
       setModal(null)
     } finally { setSubmitting(false) }
   }
@@ -260,7 +264,7 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
                     )
                   })}
                 </div>
-                {barber.bio && <p className="text-zinc-500 text-xs italic">"{barber.bio}"</p>}
+                {barber.bio && <p className="text-zinc-500 text-xs italic">&quot;{barber.bio}&quot;</p>}
               </div>
             </div>
           ))}
@@ -277,6 +281,10 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
             </Field>
             <Field label="Email *">
               <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="pedro@barbearia.com" className={INPUT} />
+            </Field>
+            <Field label="WhatsApp (com DDD)">
+              <input type="tel" value={addPhone} onChange={(e) => setAddPhone(e.target.value.replace(/\D/g, ""))} maxLength={11} placeholder="11999999999" className={INPUT} />
+              <p className="text-zinc-600 text-xs mt-1">Para receber avisos de novos agendamentos e cancelamentos.</p>
             </Field>
             <Field label="Senha provisória *">
               <div className="relative">
@@ -295,7 +303,7 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
             </Field>
             <div className="flex items-start gap-2 bg-zinc-900/60 border border-zinc-800 rounded-xl px-3 py-2.5">
               <Scissors className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-zinc-500 text-xs">Horário padrão: Seg–Sáb 09:00–18:00 com pausa 12:00–13:00. Ajuste depois em "Horários".</p>
+              <p className="text-zinc-500 text-xs">Horário padrão: Seg–Sáb 09:00–18:00 com pausa 12:00–13:00. Ajuste depois em &quot;Horários&quot;.</p>
             </div>
             <FormError error={formError} />
             <ModalActions onCancel={() => setModal(null)} loading={submitting} submitLabel="Cadastrar" />
@@ -313,6 +321,10 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
             </Field>
             <Field label="Email *">
               <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className={INPUT} />
+            </Field>
+            <Field label="WhatsApp (com DDD)">
+              <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value.replace(/\D/g, ""))} maxLength={11} placeholder="11999999999" className={INPUT} />
+              <p className="text-zinc-600 text-xs mt-1">Para receber avisos de novos agendamentos e cancelamentos.</p>
             </Field>
             <Field label="Bio">
               <input value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder="Especialista em cortes clássicos" className={INPUT} />

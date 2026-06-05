@@ -20,8 +20,13 @@ interface AppointmentNotifData {
   guestName?: string | null
   guestPhone?: string | null
   scheduledAt: Date
-  barber: { user: { name: string | null } }
-  tenant: { name: string; slug: string; allowClientCancellation?: boolean }
+  barber: { user: { name: string | null; phone?: string | null } }
+  tenant: {
+    name: string
+    slug: string
+    allowClientCancellation?: boolean
+    notifyBarberEnabled?: boolean
+  }
   services: Array<{ service: { name: string } }>
   totalPrice: unknown
 }
@@ -108,6 +113,10 @@ const TEMPLATES = {
   confirmation: process.env.WHATSAPP_TEMPLATE_CONFIRMATION ?? "barbearia_confirmacao",
   reminder: process.env.WHATSAPP_TEMPLATE_REMINDER ?? "barbearia_lembrete",
   cancellation: process.env.WHATSAPP_TEMPLATE_CANCELLATION ?? "barbearia_cancelamento",
+  barberBooking:
+    process.env.WHATSAPP_TEMPLATE_BARBER_BOOKING ?? "barbearia_barbeiro_agendamento",
+  barberCancellation:
+    process.env.WHATSAPP_TEMPLATE_BARBER_CANCELLATION ?? "barbearia_barbeiro_cancelamento",
 }
 const TEMPLATE_LANG = process.env.WHATSAPP_TEMPLATE_LANG ?? "pt_BR"
 const GRAPH_VERSION = "v21.0"
@@ -158,6 +167,12 @@ function templateParams(
     case NotifType.BOOKING_CANCELLED:
       // {{1}} cliente, {{2}} salão, {{3}} data, {{4}} hora
       return [clientName(appt), appt.tenant.name, dateStr, timeStr]
+    case NotifType.BARBER_NEW_BOOKING:
+      // {{1}} cliente, {{2}} data, {{3}} hora, {{4}} serviços
+      return [clientName(appt), dateStr, timeStr, serviceNames(appt)]
+    case NotifType.BARBER_CANCELLATION:
+      // {{1}} cliente, {{2}} data, {{3}} hora
+      return [clientName(appt), dateStr, timeStr]
     default:
       return []
   }
@@ -171,6 +186,10 @@ function templateNameFor(type: NotifType): string | null {
       return TEMPLATES.reminder
     case NotifType.BOOKING_CANCELLED:
       return TEMPLATES.cancellation
+    case NotifType.BARBER_NEW_BOOKING:
+      return TEMPLATES.barberBooking
+    case NotifType.BARBER_CANCELLATION:
+      return TEMPLATES.barberCancellation
     default:
       return null
   }
@@ -263,9 +282,11 @@ async function dispatchNotification(opts: {
   type: NotifType
   /** Texto legível: usado como fallback Z-API e gravado no log. */
   body: string
+  /** Destinatário. Default: o cliente (guestPhone). Barbeiro: passar o dele. */
+  phone?: string | null
 }) {
   const { appt, type, body } = opts
-  const phone = appt.guestPhone
+  const phone = opts.phone !== undefined ? opts.phone : appt.guestPhone
   let sent = false
 
   // 1) Cloud API (oficial, número central) — via template aprovado.
@@ -326,5 +347,52 @@ export async function sendBookingCancellation(appt: AppointmentNotifData) {
     appt,
     type: NotifType.BOOKING_CANCELLED,
     body: buildCancellationMessage(appt),
+  }).catch(console.error)
+}
+
+// ─────────────────────────────────────────────
+// Avisos ao BARBEIRO (opt-in por salão)
+// ─────────────────────────────────────────────
+
+function buildBarberBookingMessage(appt: AppointmentNotifData): string {
+  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+  return (
+    `📅 Novo agendamento na sua agenda!\n` +
+    `Cliente: ${clientName(appt)}\n` +
+    `${dateStr}\n` +
+    `Serviço: ${serviceNames(appt)}`
+  )
+}
+
+function buildBarberCancellationMessage(appt: AppointmentNotifData): string {
+  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+  return (
+    `❌ Agendamento cancelado.\n` +
+    `Cliente: ${clientName(appt)}\n` +
+    `Era: ${dateStr} — horário liberado.`
+  )
+}
+
+export async function sendBarberNewBooking(appt: AppointmentNotifData) {
+  if (!appt.tenant.notifyBarberEnabled) return
+  const phone = appt.barber.user.phone
+  if (!phone) return
+  dispatchNotification({
+    appt,
+    type: NotifType.BARBER_NEW_BOOKING,
+    body: buildBarberBookingMessage(appt),
+    phone,
+  }).catch(console.error)
+}
+
+export async function sendBarberCancellation(appt: AppointmentNotifData) {
+  if (!appt.tenant.notifyBarberEnabled) return
+  const phone = appt.barber.user.phone
+  if (!phone) return
+  dispatchNotification({
+    appt,
+    type: NotifType.BARBER_CANCELLATION,
+    body: buildBarberCancellationMessage(appt),
+    phone,
   }).catch(console.error)
 }

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { getPayment, refundPayment } from "@/lib/mercadopago"
 import { getTenantMpToken } from "@/lib/mp-account"
 import { activateClientPackage } from "@/lib/packages"
-import { sendBookingConfirmation } from "@/lib/notifications"
+import { sendBookingConfirmation, sendBarberNewBooking } from "@/lib/notifications"
 
 /**
  * Reconcilia um Payment local com o status real no Mercado Pago e, quando o
@@ -98,7 +98,10 @@ export async function markPaid(
         tenant: true,
       },
     })
-    if (appt) sendBookingConfirmation(appt).catch(console.error)
+    if (appt) {
+      sendBookingConfirmation(appt).catch(console.error)
+      sendBarberNewBooking(appt).catch(console.error)
+    }
   }
 
   return "PAID"

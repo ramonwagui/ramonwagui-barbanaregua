@@ -9,6 +9,7 @@ import MercadoPagoClient from "./mercadopago-client"
 import CancelamentoClient from "./cancelamento-client"
 import UpsellClient from "./upsell-client"
 import FidelidadeClient from "./fidelidade-client"
+import NotifBarbeiroClient from "./notif-barbeiro-client"
 import BookingLinkCard from "@/components/booking-link-card"
 import AnunciosClient from "./anuncios-client"
 import { getTenantConnectionInfo } from "@/lib/mp-account"
@@ -105,6 +106,7 @@ export default async function ConfiguracoesPage() {
             }}
             services={activeServices}
           />
+          <NotifBarbeiroClient initial={tenant.notifyBarberEnabled} />
         </>
       )}
 

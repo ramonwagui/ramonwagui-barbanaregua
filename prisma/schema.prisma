@@ -36,6 +36,9 @@ model Tenant {
   // Upsell: sugerir add-ons (serviços marcados) no agendamento
   upsellEnabled Boolean @default(false)
 
+  // Avisar o barbeiro por WhatsApp em novos agendamentos e cancelamentos
+  notifyBarberEnabled Boolean @default(false)
+
   // Fidelidade (cartão de carimbo): a cada N atendimentos, 1 serviço grátis
   loyaltyEnabled       Boolean @default(false)
   loyaltyThreshold     Int     @default(10) // N atendimentos p/ ganhar a recompensa

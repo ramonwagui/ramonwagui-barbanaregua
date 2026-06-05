@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { refundDepositForCancellation } from "@/lib/payment-reconcile"
-import { sendBookingCancellation } from "@/lib/notifications"
+import { sendBookingCancellation, sendBarberCancellation } from "@/lib/notifications"
 
 /**
  * Cancelamento self-service pelo cliente. Só funciona se o salão tiver
@@ -21,7 +21,7 @@ export async function POST(
   const appointment = await prisma.appointment.findUnique({
     where: { id: appointmentId },
     include: {
-      barber: { include: { user: { select: { name: true } } } },
+      barber: { include: { user: { select: { name: true, phone: true } } } },
       services: { include: { service: true } },
       tenant: true,
     },
@@ -67,8 +67,9 @@ export async function POST(
     return "NONE" as const
   })
 
-  // Avisa o cliente (fire-and-forget).
+  // Avisa o cliente e o barbeiro (fire-and-forget).
   sendBookingCancellation(appointment).catch(console.error)
+  sendBarberCancellation(appointment).catch(console.error)
 
   return NextResponse.json({ success: true, refund })
 }

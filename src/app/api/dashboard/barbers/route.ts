@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   if (session.user.role === "BARBER")
     return NextResponse.json({ error: "Permissão insuficiente" }, { status: 403 })
 
-  const { name, email, password, bio } = await req.json()
+  const { name, email, password, bio, phone } = await req.json()
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome obrigatório" }, { status: 400 })
   if (!email?.trim()) return NextResponse.json({ error: "Email obrigatório" }, { status: 400 })
@@ -27,6 +27,7 @@ export async function POST(req: Request) {
       data: {
         name,
         email,
+        phone: phone ? String(phone).replace(/\D/g, "") : null,
         passwordHash,
         role: "BARBER",
         isActive: true,

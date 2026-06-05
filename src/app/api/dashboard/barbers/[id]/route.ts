@@ -18,7 +18,7 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
 
   const { id } = await params
-  const { name, bio, email, password } = await req.json()
+  const { name, bio, email, password, phone } = await req.json()
 
   const barber = await prisma.barber.findUnique({
     where: { id, tenantId: session.user.tenantId! },
@@ -35,6 +35,7 @@ export async function PATCH(
   const userUpdate: Record<string, unknown> = {}
   if (name) userUpdate.name = name
   if (email) userUpdate.email = email
+  if (phone !== undefined) userUpdate.phone = phone ? String(phone).replace(/\D/g, "") : null
   if (password) {
     if (password.length < 6)
       return NextResponse.json({ error: "Senha deve ter pelo menos 6 caracteres" }, { status: 400 })

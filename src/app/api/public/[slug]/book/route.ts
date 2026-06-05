@@ -5,7 +5,7 @@ import {
   createAppointmentSchema,
   depositEmailSchema,
 } from "@/lib/validations/appointment"
-import { sendBookingConfirmation } from "@/lib/notifications"
+import { sendBookingConfirmation, sendBarberNewBooking } from "@/lib/notifications"
 import { isSlotAvailable } from "@/lib/availability"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 import { createPixPayment } from "@/lib/mercadopago"
@@ -244,6 +244,7 @@ export async function POST(
     // ── Sem sinal: fluxo original (confirma na hora) ──
     if (!requireDeposit) {
       sendBookingConfirmation(appointment).catch(console.error)
+      sendBarberNewBooking(appointment).catch(console.error)
 
       return NextResponse.json(
         {

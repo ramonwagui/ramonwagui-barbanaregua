@@ -16,7 +16,7 @@ export default async function BarbeirosPage() {
   const barbers = await prisma.barber.findMany({
     where: { tenantId },
     include: {
-      user: { select: { name: true, email: true } },
+      user: { select: { name: true, email: true, phone: true } },
       workSchedules: { orderBy: { dayOfWeek: "asc" } },
       _count: {
         select: {
@@ -40,7 +40,7 @@ export default async function BarbeirosPage() {
         bio: b.bio ?? "",
         avatarUrl: b.avatarUrl ?? null,
         todayCount: b._count.appointments,
-        user: { name: b.user.name ?? "—", email: b.user.email ?? "—" },
+        user: { name: b.user.name ?? "—", email: b.user.email ?? "—", phone: b.user.phone ?? null },
         workSchedules: b.workSchedules.map((s) => ({
           dayOfWeek: s.dayOfWeek,
           startTime: s.startTime,

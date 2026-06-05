@@ -7,6 +7,7 @@ import { AppointmentStatus } from "@prisma/client"
 import { refundDepositForCancellation } from "@/lib/payment-reconcile"
 import { disconnect as disconnectMp } from "@/lib/mp-account"
 import { recordCompletedVisit } from "@/lib/loyalty"
+import { sendBarberCancellation } from "@/lib/notifications"
 
 async function requireTenantOwner() {
   const session = await auth()
@@ -66,6 +67,20 @@ export async function updateAppointmentStatus(appointmentId: string, status: App
   // suficiente; NO_SHOW nunca estorna (barbeiro fica com o sinal).
   if (status === "CANCELLED") {
     await refundDepositForCancellation(appointmentId).catch(console.error)
+
+    // Avisa o barbeiro quando quem cancela é o dono (o barbeiro que cancela
+    // o próprio horário já sabe).
+    if (session.user.role !== "BARBER") {
+      const appt = await prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: {
+          barber: { include: { user: { select: { name: true, phone: true } } } },
+          services: { include: { service: true } },
+          tenant: true,
+        },
+      })
+      if (appt) sendBarberCancellation(appt).catch(console.error)
+    }
   }
 
   // Fidelidade: contabiliza ao concluir (apenas na transição p/ COMPLETED).
@@ -248,6 +263,16 @@ export async function updateUpsellEnabled(enabled: boolean) {
   await prisma.tenant.update({
     where: { id: session.user.tenantId! },
     data: { upsellEnabled: enabled },
+  })
+  revalidatePath("/configuracoes")
+}
+
+/** Liga/desliga os avisos por WhatsApp ao barbeiro. */
+export async function updateNotifyBarber(enabled: boolean) {
+  const session = await requireTenantOwner()
+  await prisma.tenant.update({
+    where: { id: session.user.tenantId! },
+    data: { notifyBarberEnabled: enabled },
   })
   revalidatePath("/configuracoes")
 }
