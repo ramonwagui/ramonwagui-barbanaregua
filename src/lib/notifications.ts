@@ -195,11 +195,12 @@ function templateNameFor(type: NotifType): string | null {
   }
 }
 
+/** Envia via Cloud API. Retorna o wamid (id da mensagem) ou null em falha. */
 async function sendViaCloudApi(
   phone: string,
   templateName: string,
   params: string[]
-): Promise<boolean> {
+): Promise<string | null> {
   try {
     const res = await fetch(
       `https://graph.facebook.com/${GRAPH_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
@@ -228,14 +229,20 @@ async function sendViaCloudApi(
         }),
       }
     )
+    const text = await res.text().catch(() => "")
     if (!res.ok) {
-      const body = await res.text().catch(() => "")
-      console.error("[CloudAPI] envio falhou:", res.status, body.slice(0, 300))
+      console.error("[CloudAPI] envio falhou:", res.status, text.slice(0, 300))
+      return null
     }
-    return res.ok
+    try {
+      const data = JSON.parse(text)
+      return data?.messages?.[0]?.id ?? null
+    } catch {
+      return null
+    }
   } catch (err) {
     console.error("[CloudAPI] erro:", err)
-    return false
+    return null
   }
 }
 
@@ -288,11 +295,16 @@ async function dispatchNotification(opts: {
   const { appt, type, body } = opts
   const phone = opts.phone !== undefined ? opts.phone : appt.guestPhone
   let sent = false
+  let providerMsgId: string | undefined
 
   // 1) Cloud API (oficial, número central) — via template aprovado.
   const templateName = templateNameFor(type)
   if (phone && templateName && isCloudApiConfigured()) {
-    sent = await sendViaCloudApi(phone, templateName, templateParams(appt, type))
+    const wamid = await sendViaCloudApi(phone, templateName, templateParams(appt, type))
+    if (wamid) {
+      sent = true
+      providerMsgId = wamid
+    }
   }
 
   // 2) Fallback: Z-API do próprio salão (texto livre).
@@ -318,6 +330,7 @@ async function dispatchNotification(opts: {
       type,
       recipientPhone: phone ?? undefined,
       body,
+      providerMsgId,
       status: sent ? NotifStatus.SENT : NotifStatus.FAILED,
       sentAt: sent ? new Date() : undefined,
       errorMsg: sent ? undefined : "WhatsApp não enviado (Cloud API/Z-API)",
