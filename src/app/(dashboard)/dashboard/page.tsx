@@ -3,8 +3,18 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
-import { format, startOfDay, endOfDay, startOfMonth, addDays } from "date-fns"
-import { ptBR } from "date-fns/locale"
+import {
+  fmtTime,
+  fmtDayMonth,
+  fmtWeekdayLong,
+  fmtWeekdayShort,
+  dayKey,
+  addDays,
+  startOfDayInTz,
+  startOfNextDayInTz,
+  startOfMonthInTz,
+  DEFAULT_TZ,
+} from "@/lib/timezone"
 import { CalendarDays, DollarSign, Users, Clock } from "lucide-react"
 import BarberDashboard from "./barber-dashboard"
 import BookingLinkCard from "@/components/booking-link-card"
@@ -30,18 +40,20 @@ const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
 // ─── BARBER DASHBOARD ─────────────────────────────────────────────────────────
 
 async function BarberDashboardPage({ userId, tenantId, userName }: { userId: string; tenantId: string; userName: string }) {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { timezone: true } })
+  const tzName = tenant?.timezone ?? DEFAULT_TZ
   const today = new Date()
-  const todayStart = startOfDay(today)
-  const todayEnd = endOfDay(today)
-  const weekStart = startOfDay(addDays(today, 1))
-  const weekEnd = endOfDay(addDays(today, 7))
+  const todayStart = startOfDayInTz(today, tzName)
+  const todayEnd = startOfNextDayInTz(today, tzName)
+  const weekStart = startOfDayInTz(addDays(today, 1), tzName)
+  const weekEnd = startOfNextDayInTz(addDays(today, 7), tzName)
 
   const barber = await prisma.barber.findUnique({ where: { userId } })
   if (!barber) redirect("/dashboard")
 
   const [todayAppts, weekAppts] = await Promise.all([
     prisma.appointment.findMany({
-      where: { barberId: barber.id, tenantId, scheduledAt: { gte: todayStart, lte: todayEnd } },
+      where: { barberId: barber.id, tenantId, scheduledAt: { gte: todayStart, lt: todayEnd } },
       orderBy: { scheduledAt: "asc" },
       include: { services: { include: { service: { select: { name: true } } } } },
     }),
@@ -49,7 +61,7 @@ async function BarberDashboardPage({ userId, tenantId, userName }: { userId: str
       where: {
         barberId: barber.id,
         tenantId,
-        scheduledAt: { gte: weekStart, lte: weekEnd },
+        scheduledAt: { gte: weekStart, lt: weekEnd },
         status: { notIn: ["CANCELLED", "NO_SHOW"] },
       },
       orderBy: { scheduledAt: "asc" },
@@ -60,12 +72,12 @@ async function BarberDashboardPage({ userId, tenantId, userName }: { userId: str
   // Build next 7 days preview
   const nextDays = Array.from({ length: 7 }, (_, i) => {
     const d = addDays(today, i + 1)
-    const dateStr = format(d, "yyyy-MM-dd")
+    const dateStr = dayKey(d, tzName)
     const dayAppts = weekAppts.filter(
-      (a) => format(a.scheduledAt, "yyyy-MM-dd") === dateStr
+      (a) => dayKey(a.scheduledAt, tzName) === dateStr
     )
     return {
-      label: format(d, "EEEE, dd/MM", { locale: ptBR }),
+      label: fmtWeekdayShort(d, tzName),
       dateStr,
       appointments: dayAppts.map((a) => ({
         id: a.id,
@@ -102,7 +114,7 @@ async function BarberDashboardPage({ userId, tenantId, userName }: { userId: str
       todayStats={todayStats}
       nextDays={nextDays}
       weekTotal={weekAppts.length}
-      dateLabel={format(today, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+      dateLabel={fmtWeekdayLong(today, tzName)}
     />
   )
 }
@@ -128,18 +140,22 @@ export default async function DashboardPage() {
 
   // Owner/admin view
   const today = new Date()
-  const todayStart = startOfDay(today)
-  const todayEnd = endOfDay(today)
-  const monthStart = startOfMonth(today)
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { slug: true, timezone: true },
+  })
+  const tzName = tenant?.timezone ?? DEFAULT_TZ
+  const todayStart = startOfDayInTz(today, tzName)
+  const todayEnd = startOfNextDayInTz(today, tzName)
+  const monthStart = startOfMonthInTz(today, tzName)
 
-  const [tenant, subscription, todayAppointments, monthRevenue, totalClients, upcomingAppointments] =
+  const [subscription, todayAppointments, monthRevenue, totalClients, upcomingAppointments] =
     await Promise.all([
-      prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
       prisma.subscription.findUnique({ where: { tenantId }, select: { plan: true, status: true, currentPeriodEnd: true, trialEndsAt: true } }),
       prisma.appointment.count({
         where: {
           tenantId,
-          scheduledAt: { gte: todayStart, lte: todayEnd },
+          scheduledAt: { gte: todayStart, lt: todayEnd },
           status: { notIn: ["CANCELLED", "NO_SHOW"] },
         },
       }),
@@ -208,7 +224,7 @@ export default async function DashboardPage() {
             Bom dia, {session.user.name?.split(" ")[0] ?? "chefe"}.
           </h1>
           <p className="text-zinc-600 text-sm mt-1 capitalize">
-            {format(today, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+            {fmtWeekdayLong(today, tzName)}
           </p>
         </div>
         <div className="hidden sm:flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-full px-3 py-1.5">
@@ -290,7 +306,7 @@ export default async function DashboardPage() {
                   <div className="flex items-center gap-4 min-w-0">
                     <div className="w-9 h-9 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
                       <span className="text-zinc-400 text-xs font-bold">
-                        {format(appt.scheduledAt, "HH:mm")}
+                        {fmtTime(appt.scheduledAt, tzName)}
                       </span>
                     </div>
                     <div className="min-w-0">
@@ -302,7 +318,7 @@ export default async function DashboardPage() {
                   </div>
                   <div className="flex items-center gap-4 shrink-0 ml-4">
                     <div className="text-right hidden sm:block">
-                      <p className="text-zinc-300 text-sm font-medium">{format(appt.scheduledAt, "dd/MM")}</p>
+                      <p className="text-zinc-300 text-sm font-medium">{fmtDayMonth(appt.scheduledAt, tzName)}</p>
                       <p className="text-zinc-600 text-xs">R$ {Number(appt.totalPrice).toFixed(2).replace(".", ",")}</p>
                     </div>
                     <span

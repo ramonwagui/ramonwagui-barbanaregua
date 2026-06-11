@@ -3,8 +3,14 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
-import { format, startOfDay, endOfDay, addDays, subDays, parseISO, isToday } from "date-fns"
-import { ptBR } from "date-fns/locale"
+import {
+  fmtWeekdayShort,
+  dayKey,
+  addDays,
+  startOfDayInTz,
+  startOfNextDayInTz,
+  DEFAULT_TZ,
+} from "@/lib/timezone"
 import AgendaClient from "./agenda-client"
 
 export default async function AgendaPage({
@@ -15,13 +21,20 @@ export default async function AgendaPage({
   const session = await auth()
   if (!session?.user?.tenantId) redirect("/onboarding")
 
-  const { date: dateParam } = await searchParams
-  const date = dateParam ? parseISO(dateParam) : new Date()
-  const dayStart = startOfDay(date)
-  const dayEnd = endOfDay(date)
-
   const tenantId = session.user.tenantId
   const isBarber = session.user.role === "BARBER"
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { timezone: true },
+  })
+  const tzName = tenant?.timezone ?? DEFAULT_TZ
+
+  const { date: dateParam } = await searchParams
+  // Ancorar ao meio-dia UTC mantém o dia-calendário correto em fusos BR.
+  const date = dateParam ? new Date(`${dateParam}T12:00:00Z`) : new Date()
+  const dayStart = startOfDayInTz(date, tzName)
+  const dayEnd = startOfNextDayInTz(date, tzName)
 
   // Se for barbeiro, buscar o seu próprio registro para filtrar os agendamentos
   let barberIdFilter: string | undefined
@@ -38,7 +51,7 @@ export default async function AgendaPage({
     prisma.appointment.findMany({
       where: {
         tenantId,
-        scheduledAt: { gte: dayStart, lte: dayEnd },
+        scheduledAt: { gte: dayStart, lt: dayEnd },
         ...(barberIdFilter ? { barberId: barberIdFilter } : {}),
       },
       orderBy: { scheduledAt: "asc" },
@@ -55,12 +68,11 @@ export default async function AgendaPage({
         }),
   ])
 
-  const dateStr = format(date, "yyyy-MM-dd")
-  const prevDate = format(subDays(date, 1), "yyyy-MM-dd")
-  const nextDate = format(addDays(date, 1), "yyyy-MM-dd")
-  const dateLabel = isToday(date)
-    ? "Hoje"
-    : format(date, "EEEE, dd 'de' MMMM", { locale: ptBR })
+  const dateStr = dayKey(date, tzName)
+  const prevDate = dayKey(addDays(date, -1), tzName)
+  const nextDate = dayKey(addDays(date, 1), tzName)
+  const dateLabel =
+    dateStr === dayKey(new Date(), tzName) ? "Hoje" : fmtWeekdayShort(date, tzName)
 
   return (
     <AgendaClient

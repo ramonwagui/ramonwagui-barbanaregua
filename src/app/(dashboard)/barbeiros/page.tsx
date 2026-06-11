@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
-import { startOfDay, endOfDay } from "date-fns"
+import { startOfDayInTz, startOfNextDayInTz, DEFAULT_TZ } from "@/lib/timezone"
 import BarbeirosClient from "./barbeiros-client"
 
 export default async function BarbeirosPage() {
@@ -11,7 +11,14 @@ export default async function BarbeirosPage() {
   if (!session?.user?.tenantId) redirect("/onboarding")
 
   const tenantId = session.user.tenantId
-  const today = new Date()
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { timezone: true },
+  })
+  const tzName = tenant?.timezone ?? DEFAULT_TZ
+  const now = new Date()
+  const todayStart = startOfDayInTz(now, tzName)
+  const todayEnd = startOfNextDayInTz(now, tzName)
 
   const barbers = await prisma.barber.findMany({
     where: { tenantId },
@@ -22,7 +29,7 @@ export default async function BarbeirosPage() {
         select: {
           appointments: {
             where: {
-              scheduledAt: { gte: startOfDay(today), lte: endOfDay(today) },
+              scheduledAt: { gte: todayStart, lt: todayEnd },
               status: { notIn: ["CANCELLED", "NO_SHOW"] },
             },
           },

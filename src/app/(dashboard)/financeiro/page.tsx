@@ -3,9 +3,14 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
-import { format, startOfMonth, endOfMonth, startOfDay, subMonths } from "date-fns"
-import { ptBR } from "date-fns/locale"
 import { DollarSign, TrendingUp, CheckCircle2, XCircle } from "lucide-react"
+import {
+  fmtMonth,
+  fmtMonthYear,
+  fmtDayMonthTime,
+  startOfMonthInTz,
+  DEFAULT_TZ,
+} from "@/lib/timezone"
 
 export default async function FinanceiroPage() {
   const session = await auth()
@@ -13,18 +18,22 @@ export default async function FinanceiroPage() {
   if (session.user.role === "BARBER") redirect("/dashboard")
 
   const tenantId = session.user.tenantId
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { timezone: true },
+  })
+  const tzName = tenant?.timezone ?? DEFAULT_TZ
   const now = new Date()
-  const monthStart = startOfMonth(now)
-  const monthEnd = endOfMonth(now)
-  const lastMonthStart = startOfMonth(subMonths(now, 1))
-  const lastMonthEnd = endOfMonth(subMonths(now, 1))
+  const monthStart = startOfMonthInTz(now, tzName)
+  const nextMonthStart = startOfMonthInTz(new Date(monthStart.getTime() + 32 * 86400000), tzName)
+  const lastMonthStart = startOfMonthInTz(new Date(monthStart.getTime() - 86400000), tzName)
 
   const [currentMonth, lastMonth, byBarber, recent] = await Promise.all([
     prisma.appointment.aggregate({
       where: {
         tenantId,
         status: "COMPLETED",
-        scheduledAt: { gte: monthStart, lte: monthEnd },
+        scheduledAt: { gte: monthStart, lt: nextMonthStart },
       },
       _sum: { totalPrice: true },
       _count: true,
@@ -33,7 +42,7 @@ export default async function FinanceiroPage() {
       where: {
         tenantId,
         status: "COMPLETED",
-        scheduledAt: { gte: lastMonthStart, lte: lastMonthEnd },
+        scheduledAt: { gte: lastMonthStart, lt: monthStart },
       },
       _sum: { totalPrice: true },
       _count: true,
@@ -43,7 +52,7 @@ export default async function FinanceiroPage() {
       where: {
         tenantId,
         status: "COMPLETED",
-        scheduledAt: { gte: monthStart, lte: monthEnd },
+        scheduledAt: { gte: monthStart, lt: nextMonthStart },
       },
       _sum: { totalPrice: true },
       _count: true,
@@ -90,7 +99,7 @@ export default async function FinanceiroPage() {
           Financeiro
         </h1>
         <p className="text-zinc-500 text-sm mt-0.5 capitalize">
-          {format(now, "MMMM 'de' yyyy", { locale: ptBR })}
+          {fmtMonthYear(now, tzName)}
         </p>
       </div>
 
@@ -157,7 +166,7 @@ export default async function FinanceiroPage() {
               className="text-white font-semibold"
               style={{ fontFamily: "var(--font-cormorant)", fontSize: "1.1rem" }}
             >
-              Por barbeiro — {format(now, "MMMM", { locale: ptBR })}
+              Por barbeiro — {fmtMonth(now, tzName)}
             </h2>
           </div>
           <div className="divide-y divide-zinc-800/40">
@@ -225,7 +234,7 @@ export default async function FinanceiroPage() {
                     R$ {Number(appt.totalPrice).toFixed(2).replace(".", ",")}
                   </p>
                   <p className="text-zinc-600 text-xs">
-                    {format(appt.scheduledAt, "dd/MM HH:mm")}
+                    {fmtDayMonthTime(appt.scheduledAt, tzName)}
                   </p>
                 </div>
               </div>

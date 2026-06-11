@@ -3,15 +3,19 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
-import { format } from "date-fns"
-import { ptBR } from "date-fns/locale"
 import { Users, Phone } from "lucide-react"
+import { fmtDate, DEFAULT_TZ } from "@/lib/timezone"
 
 export default async function ClientesPage() {
   const session = await auth()
   if (!session?.user?.tenantId) redirect("/onboarding")
 
   const tenantId = session.user.tenantId
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { timezone: true },
+  })
+  const tzName = tenant?.timezone ?? DEFAULT_TZ
 
   const appointments = await prisma.appointment.findMany({
     where: {
@@ -141,10 +145,10 @@ export default async function ClientesPage() {
 
                 <div className="col-span-3 text-right">
                   <p className="text-zinc-400 text-sm">
-                    {format(client.lastVisit, "dd/MM/yyyy", { locale: ptBR })}
+                    {fmtDate(client.lastVisit, tzName)}
                   </p>
                   <p className="text-zinc-600 text-xs mt-0.5">
-                    1ª: {format(client.firstVisit, "dd/MM/yy")}
+                    1ª: {fmtDate(client.firstVisit, tzName)}
                   </p>
                 </div>
               </div>
