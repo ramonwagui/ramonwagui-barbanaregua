@@ -1,7 +1,5 @@
 import { prisma } from "@/lib/prisma"
 import { NotifChannel, NotifType, NotifStatus } from "@prisma/client"
-import { format } from "date-fns"
-import { ptBR } from "date-fns/locale"
 
 /**
  * Envio de notificações por WhatsApp.
@@ -24,11 +22,40 @@ interface AppointmentNotifData {
   tenant: {
     name: string
     slug: string
+    timezone?: string
     allowClientCancellation?: boolean
     notifyBarberEnabled?: boolean
   }
   services: Array<{ service: { name: string } }>
   totalPrice: unknown
+}
+
+// ─────────────────────────────────────────────
+// Data/hora no fuso do SALÃO (evita mostrar UTC do servidor)
+// ─────────────────────────────────────────────
+
+const DEFAULT_TZ = "America/Sao_Paulo"
+
+function fmtDate(appt: AppointmentNotifData): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: appt.tenant.timezone || DEFAULT_TZ,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(appt.scheduledAt)
+}
+
+function fmtTime(appt: AppointmentNotifData): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: appt.tenant.timezone || DEFAULT_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(appt.scheduledAt)
+}
+
+function fmtDateTime(appt: AppointmentNotifData): string {
+  return `${fmtDate(appt)} às ${fmtTime(appt)}`
 }
 
 // ─────────────────────────────────────────────
@@ -70,7 +97,7 @@ function serviceNames(appt: AppointmentNotifData): string {
 // ─────────────────────────────────────────────
 
 function buildConfirmationMessage(appt: AppointmentNotifData): string {
-  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+  const dateStr = fmtDateTime(appt)
   const base =
     `Olá ${clientName(appt)}! ✂️ Seu agendamento foi confirmado na ${appt.tenant.name}.\n` +
     `📅 ${dateStr}\n` +
@@ -84,7 +111,7 @@ function buildConfirmationMessage(appt: AppointmentNotifData): string {
 }
 
 function buildReminderMessage(appt: AppointmentNotifData): string {
-  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+  const dateStr = fmtDateTime(appt)
   const base =
     `Lembrete! ✂️ Você tem agendamento na ${appt.tenant.name}.\n` +
     `📅 ${dateStr}\n` +
@@ -97,7 +124,7 @@ function buildReminderMessage(appt: AppointmentNotifData): string {
 }
 
 function buildCancellationMessage(appt: AppointmentNotifData): string {
-  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+  const dateStr = fmtDateTime(appt)
   return (
     `Olá ${clientName(appt)}, seu agendamento em ${appt.tenant.name} foi cancelado.\n` +
     `📅 ${dateStr}\n\n` +
@@ -142,8 +169,8 @@ function templateParams(
   appt: AppointmentNotifData,
   type: NotifType
 ): string[] {
-  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy", { locale: ptBR })
-  const timeStr = format(appt.scheduledAt, "HH:mm")
+  const dateStr = fmtDate(appt)
+  const timeStr = fmtTime(appt)
   switch (type) {
     case NotifType.BOOKING_CONFIRMATION:
       // {{1}} cliente, {{2}} salão, {{3}} data, {{4}} hora, {{5}} serviço, {{6}} barbeiro
@@ -368,7 +395,7 @@ export async function sendBookingCancellation(appt: AppointmentNotifData) {
 // ─────────────────────────────────────────────
 
 function buildBarberBookingMessage(appt: AppointmentNotifData): string {
-  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+  const dateStr = fmtDateTime(appt)
   return (
     `📅 Novo agendamento na sua agenda!\n` +
     `Cliente: ${clientName(appt)}\n` +
@@ -378,7 +405,7 @@ function buildBarberBookingMessage(appt: AppointmentNotifData): string {
 }
 
 function buildBarberCancellationMessage(appt: AppointmentNotifData): string {
-  const dateStr = format(appt.scheduledAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+  const dateStr = fmtDateTime(appt)
   return (
     `❌ Agendamento cancelado.\n` +
     `Cliente: ${clientName(appt)}\n` +

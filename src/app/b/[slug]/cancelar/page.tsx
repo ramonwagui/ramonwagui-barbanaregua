@@ -1,9 +1,26 @@
 import { prisma } from "@/lib/prisma"
-import { format } from "date-fns"
-import { ptBR } from "date-fns/locale"
 import Link from "next/link"
 import { Calendar, Clock, Scissors, XCircle } from "lucide-react"
 import CancelarClient from "./cancelar-client"
+
+const TZ_DEFAULT = "America/Sao_Paulo"
+function fmtFullDate(d: Date, tz: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: tz,
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(d)
+}
+function fmtHm(d: Date, tz: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d)
+}
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -137,7 +154,7 @@ export default async function CancelarPage({
             <div>
               <p className="text-xs text-zinc-500 mb-0.5">Data</p>
               <p className="text-white text-sm font-medium capitalize">
-                {format(appointment.scheduledAt, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                {fmtFullDate(appointment.scheduledAt, tenant.timezone ?? TZ_DEFAULT)}
               </p>
             </div>
           </div>
@@ -146,7 +163,7 @@ export default async function CancelarPage({
             <div>
               <p className="text-xs text-zinc-500 mb-0.5">Horário</p>
               <p className="text-white text-sm font-medium">
-                {format(appointment.scheduledAt, "HH:mm")} – {format(appointment.endsAt, "HH:mm")}
+                {fmtHm(appointment.scheduledAt, tenant.timezone ?? TZ_DEFAULT)} – {fmtHm(appointment.endsAt, tenant.timezone ?? TZ_DEFAULT)}
               </p>
             </div>
           </div>
