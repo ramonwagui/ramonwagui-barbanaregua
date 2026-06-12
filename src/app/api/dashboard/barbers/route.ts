@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   if (session.user.role === "BARBER")
     return NextResponse.json({ error: "Permissão insuficiente" }, { status: 403 })
 
-  const { name, email, password, bio, phone } = await req.json()
+  const { name, email, password, bio, phone, commissionPercent } = await req.json()
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome obrigatório" }, { status: 400 })
   if (!email?.trim()) return NextResponse.json({ error: "Email obrigatório" }, { status: 400 })
@@ -41,6 +41,7 @@ export async function POST(req: Request) {
         tenantId: session.user.tenantId!,
         bio: bio || null,
         isActive: true,
+        commissionPercent: Math.min(100, Math.max(0, Math.round(Number(commissionPercent) || 0))),
       },
     })
 

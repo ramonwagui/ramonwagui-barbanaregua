@@ -46,6 +46,7 @@ export default async function BarbeirosPage() {
         isActive: b.isActive,
         bio: b.bio ?? "",
         avatarUrl: b.avatarUrl ?? null,
+        commissionPercent: b.commissionPercent,
         todayCount: b._count.appointments,
         user: { name: b.user.name ?? "—", email: b.user.email ?? "—", phone: b.user.phone ?? null },
         workSchedules: b.workSchedules.map((s) => ({

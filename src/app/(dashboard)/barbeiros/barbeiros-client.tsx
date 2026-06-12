@@ -9,6 +9,7 @@ const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
 type Schedule = { dayOfWeek: number; startTime: string; endTime: string; breakStart?: string; breakEnd?: string; isActive: boolean }
 type Barber = {
   id: string; isActive: boolean; bio: string; avatarUrl: string | null; todayCount: number
+  commissionPercent: number
   user: { name: string; email: string; phone: string | null }; workSchedules: Schedule[]
 }
 type Modal =
@@ -37,6 +38,7 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
   const [addName, setAddName] = useState(""); const [addEmail, setAddEmail] = useState("")
   const [addPassword, setAddPassword] = useState(""); const [addBio, setAddBio] = useState("")
   const [addPhone, setAddPhone] = useState("")
+  const [addCommission, setAddCommission] = useState(0)
   const [showPwd, setShowPwd] = useState(false)
 
   // Edit form
@@ -44,6 +46,7 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
   const [editEmail, setEditEmail] = useState("")
   const [editBio, setEditBio] = useState("")
   const [editPhone, setEditPhone] = useState("")
+  const [editCommission, setEditCommission] = useState(0)
   const [editPassword, setEditPassword] = useState("")
   const [showEditPwd, setShowEditPwd] = useState(false)
 
@@ -51,7 +54,7 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
   const [scheduleRows, setScheduleRows] = useState<Schedule[]>(DEFAULT_SCHEDULE)
 
   function openAdd() {
-    setAddName(""); setAddEmail(""); setAddPassword(""); setAddBio(""); setAddPhone(""); setShowPwd(false)
+    setAddName(""); setAddEmail(""); setAddPassword(""); setAddBio(""); setAddPhone(""); setAddCommission(0); setShowPwd(false)
     setFormError(null); setModal({ type: "add" })
   }
 
@@ -60,6 +63,7 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
     setEditEmail(barber.user.email)
     setEditBio(barber.bio)
     setEditPhone(barber.user.phone ?? "")
+    setEditCommission(barber.commissionPercent)
     setEditPassword("")
     setShowEditPwd(false)
     setFormError(null)
@@ -91,12 +95,13 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
       const res = await fetch("/api/dashboard/barbers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: addName, email: addEmail, password: addPassword, bio: addBio, phone: addPhone }),
+        body: JSON.stringify({ name: addName, email: addEmail, password: addPassword, bio: addBio, phone: addPhone, commissionPercent: addCommission }),
       })
       const data = await res.json()
       if (!res.ok) { setFormError(data.error ?? "Erro ao cadastrar"); return }
       setBarbers((prev) => [...prev, {
         id: data.barber.id, isActive: true, bio: addBio, avatarUrl: null, todayCount: 0,
+        commissionPercent: addCommission,
         user: { name: addName, email: addEmail, phone: addPhone || null },
         workSchedules: [1,2,3,4,5,6].map((d) => ({ dayOfWeek: d, startTime: "09:00", endTime: "18:00", breakStart: "12:00", breakEnd: "13:00", isActive: true })),
       }])
@@ -117,12 +122,13 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
           email: editEmail,
           bio: editBio,
           phone: editPhone,
+          commissionPercent: editCommission,
           password: editPassword || undefined,
         }),
       })
       if (!res.ok) { const d = await res.json(); setFormError(d.error ?? "Erro ao salvar"); return }
       setBarbers((prev) => prev.map((b) => b.id === modal.barber.id
-        ? { ...b, bio: editBio, user: { name: editName, email: editEmail, phone: editPhone || null } } : b))
+        ? { ...b, bio: editBio, commissionPercent: editCommission, user: { name: editName, email: editEmail, phone: editPhone || null } } : b))
       setModal(null)
     } finally { setSubmitting(false) }
   }
@@ -286,6 +292,10 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
               <input type="tel" value={addPhone} onChange={(e) => setAddPhone(e.target.value.replace(/\D/g, ""))} maxLength={11} placeholder="11999999999" className={INPUT} />
               <p className="text-zinc-600 text-xs mt-1">Para receber avisos de novos agendamentos e cancelamentos.</p>
             </Field>
+            <Field label="Comissão (%)">
+              <input type="number" min={0} max={100} value={addCommission} onChange={(e) => setAddCommission(Number(e.target.value))} className={INPUT} />
+              <p className="text-zinc-600 text-xs mt-1">Percentual sobre a receita gerada (aparece nos Relatórios).</p>
+            </Field>
             <Field label="Senha provisória *">
               <div className="relative">
                 <input type={showPwd ? "text" : "password"} value={addPassword} onChange={(e) => setAddPassword(e.target.value)}
@@ -325,6 +335,10 @@ export default function BarbeirosClient({ barbers: initial, isOwner }: { barbers
             <Field label="WhatsApp (com DDD)">
               <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value.replace(/\D/g, ""))} maxLength={11} placeholder="11999999999" className={INPUT} />
               <p className="text-zinc-600 text-xs mt-1">Para receber avisos de novos agendamentos e cancelamentos.</p>
+            </Field>
+            <Field label="Comissão (%)">
+              <input type="number" min={0} max={100} value={editCommission} onChange={(e) => setEditCommission(Number(e.target.value))} className={INPUT} />
+              <p className="text-zinc-600 text-xs mt-1">Percentual sobre a receita gerada (aparece nos Relatórios).</p>
             </Field>
             <Field label="Bio">
               <input value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder="Especialista em cortes clássicos" className={INPUT} />

@@ -18,7 +18,7 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
 
   const { id } = await params
-  const { name, bio, email, password, phone } = await req.json()
+  const { name, bio, email, password, phone, commissionPercent } = await req.json()
 
   const barber = await prisma.barber.findUnique({
     where: { id, tenantId: session.user.tenantId! },
@@ -42,9 +42,14 @@ export async function PATCH(
     userUpdate.passwordHash = await bcrypt.hash(password, 12)
   }
 
+  const barberUpdate: Record<string, unknown> = { bio: bio ?? barber.bio }
+  if (commissionPercent !== undefined) {
+    barberUpdate.commissionPercent = Math.min(100, Math.max(0, Math.round(Number(commissionPercent) || 0)))
+  }
+
   await prisma.$transaction([
     prisma.user.update({ where: { id: barber.userId }, data: userUpdate }),
-    prisma.barber.update({ where: { id }, data: { bio: bio ?? barber.bio } }),
+    prisma.barber.update({ where: { id }, data: barberUpdate }),
   ])
 
   return NextResponse.json({ ok: true })
