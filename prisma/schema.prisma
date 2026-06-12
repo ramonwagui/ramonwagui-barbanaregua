@@ -262,6 +262,7 @@ model Appointment {
   depositAmount      Decimal?          @db.Decimal(10, 2) // valor do sinal cobrado
   paymentExpiresAt   DateTime?         // quando o hold PENDING (aguardando sinal) expira
   reminderSent       Boolean           @default(false)
+  clientConfirmedAt  DateTime?         // cliente confirmou presença (via WhatsApp)
   cancellationReason String?
   cancelledAt        DateTime?
   createdAt          DateTime          @default(now())

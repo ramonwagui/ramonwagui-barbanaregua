@@ -20,6 +20,7 @@ type Appointment = {
   barberId: string
   barberName: string
   services: { name: string }[]
+  clientConfirmed?: boolean
 }
 
 const STATUS_LABELS: Record<ApptStatus, string> = {
@@ -189,8 +190,17 @@ export default function AgendaClient({
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium text-sm">
+                    <p className="text-white font-medium text-sm flex items-center gap-1.5">
                       {appt.guestName ?? "Cliente"}
+                      {appt.clientConfirmed && (
+                        <span
+                          className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                          style={{ backgroundColor: "#14532d30", color: "#4ade80" }}
+                          title="Presença confirmada pelo cliente"
+                        >
+                          ✓ confirmado
+                        </span>
+                      )}
                     </p>
                     <p className="text-zinc-500 text-xs mt-0.5 truncate">
                       {appt.services.map((s) => s.name).join(" + ")}

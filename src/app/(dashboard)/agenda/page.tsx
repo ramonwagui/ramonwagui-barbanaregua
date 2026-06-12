@@ -84,6 +84,7 @@ export default async function AgendaPage({
         depositAmount: a.depositAmount ? Number(a.depositAmount) : null,
         services: a.services.map((s) => ({ name: s.service.name })),
         barberName: a.barber.user.name ?? "—",
+        clientConfirmed: !!a.clientConfirmedAt,
       }))}
       barbers={barbers.map((b) => ({ id: b.id, name: b.user.name ?? "—" }))}
       dateLabel={dateLabel}

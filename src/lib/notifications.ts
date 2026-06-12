@@ -138,7 +138,7 @@ function buildCancellationMessage(appt: AppointmentNotifData): string {
 
 const TEMPLATES = {
   confirmation: process.env.WHATSAPP_TEMPLATE_CONFIRMATION ?? "barbearia_confirmacao",
-  reminder: process.env.WHATSAPP_TEMPLATE_REMINDER ?? "barbearia_lembrete",
+  reminder: process.env.WHATSAPP_TEMPLATE_REMINDER ?? "barbearia_lembrete_botoes",
   cancellation: process.env.WHATSAPP_TEMPLATE_CANCELLATION ?? "barbearia_cancelamento",
   barberBooking:
     process.env.WHATSAPP_TEMPLATE_BARBER_BOOKING ?? "barbearia_barbeiro_agendamento",
@@ -205,6 +205,20 @@ function templateParams(
   }
 }
 
+/** Botões quick-reply por tipo (payload carrega o appointmentId p/ match exato). */
+function templateButtons(
+  appt: AppointmentNotifData,
+  type: NotifType
+): TemplateButton[] | undefined {
+  if (type === NotifType.BOOKING_REMINDER_24H) {
+    return [
+      { index: 0, payload: `CONFIRMAR:${appt.id}` },
+      { index: 1, payload: `CANCELAR:${appt.id}` },
+    ]
+  }
+  return undefined
+}
+
 function templateNameFor(type: NotifType): string | null {
   switch (type) {
     case NotifType.BOOKING_CONFIRMATION:
@@ -222,13 +236,37 @@ function templateNameFor(type: NotifType): string | null {
   }
 }
 
+/** Botões quick-reply a anexar (payload por índice). */
+interface TemplateButton {
+  index: number
+  payload: string
+}
+
 /** Envia via Cloud API. Retorna o wamid (id da mensagem) ou null em falha. */
 async function sendViaCloudApi(
   phone: string,
   templateName: string,
-  params: string[]
+  params: string[],
+  buttons?: TemplateButton[]
 ): Promise<string | null> {
   try {
+    const components: unknown[] = []
+    if (params.length) {
+      components.push({
+        type: "body",
+        parameters: params.map((text) => ({ type: "text", text })),
+      })
+    }
+    if (buttons?.length) {
+      for (const b of buttons) {
+        components.push({
+          type: "button",
+          sub_type: "quick_reply",
+          index: String(b.index),
+          parameters: [{ type: "payload", payload: b.payload }],
+        })
+      }
+    }
     const res = await fetch(
       `https://graph.facebook.com/${GRAPH_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       {
@@ -244,14 +282,7 @@ async function sendViaCloudApi(
           template: {
             name: templateName,
             language: { code: TEMPLATE_LANG },
-            components: params.length
-              ? [
-                  {
-                    type: "body",
-                    parameters: params.map((text) => ({ type: "text", text })),
-                  },
-                ]
-              : [],
+            components,
           },
         }),
       }
@@ -327,7 +358,12 @@ async function dispatchNotification(opts: {
   // 1) Cloud API (oficial, número central) — via template aprovado.
   const templateName = templateNameFor(type)
   if (phone && templateName && isCloudApiConfigured()) {
-    const wamid = await sendViaCloudApi(phone, templateName, templateParams(appt, type))
+    const wamid = await sendViaCloudApi(
+      phone,
+      templateName,
+      templateParams(appt, type),
+      templateButtons(appt, type)
+    )
     if (wamid) {
       sent = true
       providerMsgId = wamid
@@ -411,6 +447,36 @@ function buildBarberCancellationMessage(appt: AppointmentNotifData): string {
     `Cliente: ${clientName(appt)}\n` +
     `Era: ${dateStr} — horário liberado.`
   )
+}
+
+/**
+ * Envia texto livre (não-template) via Cloud API. Só funciona dentro da janela
+ * de 24h de atendimento (após o cliente nos enviar uma mensagem) — usado para
+ * responder a quem tocou um botão do lembrete.
+ */
+export async function sendWhatsAppText(phone: string, text: string): Promise<boolean> {
+  if (!isCloudApiConfigured()) return false
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: toWhatsAppNumber(phone),
+          type: "text",
+          text: { body: text },
+        }),
+      }
+    )
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 export async function sendBarberNewBooking(appt: AppointmentNotifData) {

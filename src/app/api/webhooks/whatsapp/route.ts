@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { createHmac, timingSafeEqual } from "crypto"
 import { prisma } from "@/lib/prisma"
 import { NotifStatus } from "@prisma/client"
+import { refundDepositForCancellation } from "@/lib/payment-reconcile"
+import { sendWhatsAppText, sendBarberCancellation } from "@/lib/notifications"
 
 /**
  * Webhook do WhatsApp Cloud API (Meta).
@@ -62,6 +64,11 @@ export async function POST(req: Request) {
 
       if (failed) console.error("[WA status] FALHOU", s.id, "→", errMsg)
     }
+
+    // Respostas de botão do lembrete (Confirmar presença / Cancelar)
+    for (const r of extractButtonReplies(body)) {
+      await handleButtonReply(r.from, r.payload)
+    }
   } catch (err) {
     console.error("[WA webhook]", err)
   }
@@ -104,4 +111,96 @@ function extractStatuses(body: unknown): WaStatus[] {
     }
   }
   return out
+}
+
+interface ButtonReply {
+  from: string
+  payload: string
+}
+
+/** Respostas de botão quick-reply de template (type "button") ou interativo. */
+function extractButtonReplies(body: unknown): ButtonReply[] {
+  const out: ButtonReply[] = []
+  const entries = (body as { entry?: unknown[] })?.entry
+  if (!Array.isArray(entries)) return out
+  for (const entry of entries) {
+    const changes = (entry as { changes?: unknown[] })?.changes
+    if (!Array.isArray(changes)) continue
+    for (const change of changes) {
+      const msgs = (change as { value?: { messages?: unknown[] } })?.value?.messages
+      if (!Array.isArray(msgs)) continue
+      for (const m of msgs) {
+        const msg = m as {
+          from?: string
+          type?: string
+          button?: { payload?: string }
+          interactive?: { button_reply?: { id?: string } }
+        }
+        const payload =
+          msg.button?.payload ?? msg.interactive?.button_reply?.id ?? null
+        if (msg.from && payload) out.push({ from: msg.from, payload })
+      }
+    }
+  }
+  return out
+}
+
+/** Trata CONFIRMAR:<id> / CANCELAR:<id> vindo do lembrete. */
+async function handleButtonReply(from: string, payload: string): Promise<void> {
+  const [action, appointmentId] = payload.split(":")
+  if (!appointmentId || (action !== "CONFIRMAR" && action !== "CANCELAR")) return
+
+  const appt = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: {
+      barber: { include: { user: { select: { name: true, phone: true } } } },
+      services: { include: { service: true } },
+      tenant: true,
+    },
+  })
+  if (!appt) {
+    await sendWhatsAppText(from, "Não encontramos seu agendamento. 🤔")
+    return
+  }
+
+  const cancellable =
+    ["PENDING", "CONFIRMED"].includes(appt.status) &&
+    appt.scheduledAt.getTime() > Date.now()
+
+  if (action === "CONFIRMAR") {
+    if (!cancellable) {
+      await sendWhatsAppText(from, "Este agendamento não está mais ativo.")
+      return
+    }
+    await prisma.appointment.update({
+      where: { id: appt.id },
+      data: { clientConfirmedAt: new Date() },
+    })
+    await sendWhatsAppText(from, "✅ Presença confirmada! Te esperamos. ✂️")
+    return
+  }
+
+  // CANCELAR
+  if (!cancellable) {
+    await sendWhatsAppText(from, "Este agendamento não pode mais ser cancelado.")
+    return
+  }
+  await prisma.appointment.update({
+    where: { id: appt.id },
+    data: {
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      cancellationReason: "Cancelado pelo cliente (WhatsApp)",
+    },
+  })
+  const refund = await refundDepositForCancellation(appt.id).catch(() => "NONE" as const)
+  sendBarberCancellation(appt).catch(() => {})
+
+  const refundMsg =
+    refund === "REFUNDED"
+      ? " O sinal pago será estornado."
+      : refund === "KEPT"
+        ? " O sinal não será estornado (cancelamento em cima da hora)."
+        : ""
+  await sendWhatsAppText(from, `Seu agendamento foi cancelado.${refundMsg}`)
 }
