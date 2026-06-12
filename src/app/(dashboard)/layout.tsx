@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
+import { hasActiveSubscription, isBillingConfigured } from "@/lib/billing"
 import DashboardNav from "./dashboard-nav"
 
 export default async function DashboardLayout({
@@ -13,6 +14,17 @@ export default async function DashboardLayout({
   if (!session?.user) redirect("/login")
   if (!session.user.tenantId && session.user.role !== "SUPER_ADMIN") {
     redirect("/onboarding")
+  }
+
+  // Bloqueio por assinatura: sem assinatura ativa (trial expirado/inadimplente),
+  // o painel redireciona para /assinatura. Só aplica se o Stripe estiver
+  // configurado (evita travar ambientes sem cobrança).
+  if (session.user.tenantId && isBillingConfigured()) {
+    const sub = await prisma.subscription.findUnique({
+      where: { tenantId: session.user.tenantId },
+      select: { status: true, trialEndsAt: true },
+    })
+    if (!hasActiveSubscription(sub)) redirect("/assinatura")
   }
 
   const isBarber = session.user.role === "BARBER"
