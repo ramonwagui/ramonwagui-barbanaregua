@@ -512,10 +512,18 @@ model Banner {
 // ─────────────────────────────────────────────
 
 model GlobalConfig {
-  id             String   @id @default("singleton")
-  platformLogoUrl String?
-  platformName   String   @default("Barbanaregua")
-  updatedAt      DateTime @updatedAt
+  id               String   @id @default("singleton")
+  platformLogoUrl  String?
+  platformName     String   @default("Barbanaregua")
+  // Preços exibidos na página /assinatura (em centavos)
+  planPriceBasic   Int      @default(9900)
+  planPricePro     Int      @default(19900)
+  planPricePremium Int      @default(39900)
+  // Price IDs do Stripe (sobrescreve as env vars STRIPE_PRICE_*)
+  stripePriceBasic    String?
+  stripePricePro      String?
+  stripePricePremium  String?
+  updatedAt        DateTime @updatedAt
 }
 
 // ─────────────────────────────────────────────

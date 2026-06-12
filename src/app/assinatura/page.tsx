@@ -45,11 +45,23 @@ export default async function AssinaturaPage() {
   if (!session.user.tenantId) redirect("/onboarding")
 
   const isOwner = session.user.role !== "BARBER"
-  const sub = await prisma.subscription.findUnique({
-    where: { tenantId: session.user.tenantId },
-    select: { plan: true, status: true, trialEndsAt: true, currentPeriodEnd: true, stripeCustomerId: true },
-  })
+  const [sub, config] = await Promise.all([
+    prisma.subscription.findUnique({
+      where: { tenantId: session.user.tenantId },
+      select: { plan: true, status: true, trialEndsAt: true, currentPeriodEnd: true, stripeCustomerId: true },
+    }),
+    prisma.globalConfig.findUnique({
+      where: { id: "singleton" },
+      select: { planPriceBasic: true, planPricePro: true, planPricePremium: true },
+    }),
+  ])
   const active = hasActiveSubscription(sub)
+
+  const dbPrices: Record<PlanTier, number> = {
+    BASIC:   config?.planPriceBasic   ?? PLAN_PRICES.BASIC,
+    PRO:     config?.planPricePro     ?? PLAN_PRICES.PRO,
+    PREMIUM: config?.planPricePremium ?? PLAN_PRICES.PREMIUM,
+  }
 
   let statusLine = "Sem assinatura."
   if (sub) {
@@ -70,7 +82,7 @@ export default async function AssinaturaPage() {
   const plans = ORDER.map((tier) => ({
     tier,
     label: PLAN_LABELS[tier],
-    price: PLAN_PRICES[tier] / 100,
+    price: dbPrices[tier] / 100,
     features: planFeatures(tier),
   }))
 

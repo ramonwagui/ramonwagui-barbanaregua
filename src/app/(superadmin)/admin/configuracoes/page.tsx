@@ -17,6 +17,17 @@ export default async function AdminConfigPage() {
     }),
   ])
 
+  const planPrices = {
+    basic:   config?.planPriceBasic   ?? 9900,
+    pro:     config?.planPricePro     ?? 19900,
+    premium: config?.planPricePremium ?? 39900,
+  }
+  const stripePriceIds = {
+    basic:   config?.stripePriceBasic   ?? "",
+    pro:     config?.stripePricePro     ?? "",
+    premium: config?.stripePricePremium ?? "",
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -34,6 +45,8 @@ export default async function AdminConfigPage() {
         adminName={admin?.name ?? ""}
         adminEmail={admin?.email ?? ""}
         adminId={session.user.id}
+        planPrices={planPrices}
+        stripePriceIds={stripePriceIds}
       />
     </div>
   )

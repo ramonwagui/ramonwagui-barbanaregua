@@ -63,8 +63,9 @@ export async function createCheckoutSession(opts: {
   plan: PlanTier
   email: string
   customerId?: string | null
+  priceIdOverride?: string | null
 }): Promise<Stripe.Checkout.Session> {
-  const price = priceIdForPlan(opts.plan)
+  const price = opts.priceIdOverride || priceIdForPlan(opts.plan)
   if (!price) throw new Error(`Plano ${opts.plan} sem Price do Stripe configurado`)
   return stripe.checkout.sessions.create({
     mode: "subscription",

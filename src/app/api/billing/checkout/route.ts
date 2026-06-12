@@ -23,10 +23,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Plano inválido" }, { status: 400 })
   }
 
-  const sub = await prisma.subscription.findUnique({
-    where: { tenantId: session.user.tenantId },
-    select: { stripeCustomerId: true },
-  })
+  const [sub, config] = await Promise.all([
+    prisma.subscription.findUnique({
+      where: { tenantId: session.user.tenantId },
+      select: { stripeCustomerId: true },
+    }),
+    prisma.globalConfig.findUnique({
+      where: { id: "singleton" },
+      select: { stripePriceBasic: true, stripePricePro: true, stripePricePremium: true },
+    }),
+  ])
+
+  // Price ID: banco tem prioridade sobre env var
+  const dbPriceIds: Record<string, string | null | undefined> = {
+    BASIC: config?.stripePriceBasic,
+    PRO: config?.stripePricePro,
+    PREMIUM: config?.stripePricePremium,
+  }
+  const resolvedPriceId = dbPriceIds[plan] || null
 
   try {
     const checkout = await createCheckoutSession({
@@ -34,6 +48,7 @@ export async function POST(req: Request) {
       plan,
       email: session.user.email ?? "",
       customerId: sub?.stripeCustomerId,
+      priceIdOverride: resolvedPriceId,
     })
     return NextResponse.json({ url: checkout.url })
   } catch (err) {
