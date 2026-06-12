@@ -6,6 +6,8 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { DollarSign, CheckCircle2, TrendingUp, UserX, Repeat } from "lucide-react"
 import { startOfMonthInTz, startOfDayInTz, startOfNextDayInTz, DEFAULT_TZ } from "@/lib/timezone"
+import { getTenantById } from "@/lib/tenant"
+import { getPlanLimits } from "@/lib/plans"
 
 const RANGES = [
   { key: "this_month", label: "Este mês" },
@@ -50,10 +52,22 @@ export default async function RelatoriosPage({
 
   const tenantId = session.user.tenantId
   const { range = "this_month" } = await searchParams
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { timezone: true } })
-  const tzName = tenant?.timezone ?? DEFAULT_TZ
+  const tenant = await getTenantById(tenantId)
+  const tzName = tenant.timezone ?? DEFAULT_TZ
+  const limits = getPlanLimits(tenant)
+  const maxHistoryDays = limits.analyticsHistoryDays
+
   const now = new Date()
-  const { start, end } = getPeriod(range, now, tzName)
+
+  // Cortar o período pelo limite do plano (ex: Basic = 30 dias)
+  function cappedPeriod(range: string): { start: Date; end: Date } {
+    const period = getPeriod(range, now, tzName)
+    if (maxHistoryDays === null) return period
+    const earliest = new Date(now.getTime() - maxHistoryDays * 86400000)
+    return { start: period.start < earliest ? earliest : period.start, end: period.end }
+  }
+
+  const { start, end } = cappedPeriod(range)
   const inPeriod = { gte: start, lt: end }
 
   const [
@@ -217,6 +231,17 @@ export default async function RelatoriosPage({
           })}
         </div>
       </div>
+
+      {/* Aviso de limite do plano */}
+      {maxHistoryDays !== null && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-300 text-sm">
+          Seu plano exibe até <strong>{maxHistoryDays} dias</strong> de histórico.{" "}
+          <Link href="/assinatura" className="underline underline-offset-4 hover:text-amber-200">
+            Faça upgrade
+          </Link>{" "}
+          para relatórios completos.
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">

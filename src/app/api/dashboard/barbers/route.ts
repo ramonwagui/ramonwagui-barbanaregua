@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
+import { getTenantById } from "@/lib/tenant"
+import { getPlanLimits } from "@/lib/plans"
 
 export async function POST(req: Request) {
   const session = await auth()
@@ -9,6 +11,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
   if (session.user.role === "BARBER")
     return NextResponse.json({ error: "Permissão insuficiente" }, { status: 403 })
+
+  // Verificar limite de barbeiros do plano
+  const tenant = await getTenantById(session.user.tenantId)
+  const limits = getPlanLimits(tenant)
+  if (limits.maxBarbers !== null) {
+    const count = await prisma.barber.count({
+      where: { tenantId: session.user.tenantId, isActive: true },
+    })
+    if (count >= limits.maxBarbers) {
+      return NextResponse.json(
+        { error: `Seu plano permite no máximo ${limits.maxBarbers} barbeiro(s). Faça upgrade para adicionar mais.` },
+        { status: 403 }
+      )
+    }
+  }
 
   const { name, email, password, bio, phone, commissionPercent } = await req.json()
 

@@ -8,6 +8,8 @@ import { refundDepositForCancellation } from "@/lib/payment-reconcile"
 import { disconnect as disconnectMp } from "@/lib/mp-account"
 import { recordCompletedVisit } from "@/lib/loyalty"
 import { sendBarberCancellation } from "@/lib/notifications"
+import { getTenantById } from "@/lib/tenant"
+import { getPlanLimits } from "@/lib/plans"
 
 async function requireTenantOwner() {
   const session = await auth()
@@ -105,6 +107,15 @@ export async function updateDepositSettings(data: {
   cancelRefundHours: number
 }) {
   const session = await requireTenantOwner()
+
+  if (data.requireDeposit) {
+    const tenant = await getTenantById(session.user.tenantId!)
+    const limits = getPlanLimits(tenant)
+    if (!limits.onlinePayments) {
+      throw new Error("Seu plano não inclui pagamentos online. Faça upgrade para o plano Pro ou superior.")
+    }
+  }
+
   await prisma.tenant.update({
     where: { id: session.user.tenantId! },
     data: {

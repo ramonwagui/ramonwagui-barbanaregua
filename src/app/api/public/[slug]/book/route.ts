@@ -42,6 +42,28 @@ export async function POST(
       )
     }
 
+    // Verificar limite de agendamentos mensais do plano
+    const { getPlanLimits } = await import("@/lib/plans")
+    const limits = getPlanLimits(tenant)
+    if (limits.maxAppointmentsPerMonth !== null) {
+      const monthStart = new Date()
+      monthStart.setUTCDate(1)
+      monthStart.setUTCHours(0, 0, 0, 0)
+      const count = await prisma.appointment.count({
+        where: {
+          tenantId: tenant.id,
+          scheduledAt: { gte: monthStart },
+          status: { notIn: ["CANCELLED"] },
+        },
+      })
+      if (count >= limits.maxAppointmentsPerMonth) {
+        return NextResponse.json(
+          { error: "Esta barbearia atingiu o limite de agendamentos do mês." },
+          { status: 403 }
+        )
+      }
+    }
+
     const services: Service[] = await prisma.service.findMany({
       where: {
         id: { in: data.serviceIds },
