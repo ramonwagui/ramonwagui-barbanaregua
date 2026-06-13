@@ -31,9 +31,7 @@ export async function GET(
       ? "PAID"
       : clientPackage?.status === "CANCELLED"
         ? "FAILED"
-        : result.status === "NOT_FOUND"
-          ? "PENDING"
-          : result.status
+        : result.status
 
   return NextResponse.json({
     status,
