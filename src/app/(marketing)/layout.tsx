@@ -9,8 +9,8 @@ export default function MarketingLayout({
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <header className="fixed top-0 inset-x-0 z-50 border-b border-zinc-800/50 backdrop-blur-sm bg-zinc-950/80">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Logo href="/" size="sm" />
+        <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
+          <Logo href="/" size="md" />
 
           <nav className="hidden md:flex items-center gap-8">
             <Link href="#funcionalidades" className="text-zinc-400 hover:text-white text-sm transition-colors">
@@ -38,11 +38,11 @@ export default function MarketingLayout({
         </div>
       </header>
 
-      <main className="pt-16">{children}</main>
+      <main className="pt-20">{children}</main>
 
       <footer className="border-t border-zinc-800/50 py-10">
         <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <Logo size="sm" />
+          <Logo size="md" />
           <p className="text-zinc-600 text-sm">
             © {new Date().getFullYear()} Barbanaregua. Todos os direitos reservados.
           </p>
