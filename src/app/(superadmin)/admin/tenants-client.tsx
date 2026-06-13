@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react"
 import { format, addDays, addMonths } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { CheckCircle2, XCircle, ExternalLink, Scissors, CreditCard, X } from "lucide-react"
+import { CheckCircle2, XCircle, ExternalLink, Scissors, CreditCard, X, Trash2, AlertTriangle } from "lucide-react"
 
 type Tenant = {
   id: string
@@ -55,6 +55,10 @@ export default function AdminTenantsClient({ tenants: initial }: { tenants: Tena
   const [search, setSearch] = useState("")
   const [planModal, setPlanModal] = useState<PlanModalState | null>(null)
   const [planError, setPlanError] = useState<string | null>(null)
+  const [deleteModal, setDeleteModal] = useState<{ id: string; name: string } | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState("")
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const filtered = tenants.filter(
     (t) =>
@@ -88,6 +92,32 @@ export default function AdminTenantsClient({ tenants: initial }: { tenants: Tena
         )
       }
     })
+  }
+
+  function openDeleteModal(tenant: Tenant) {
+    setDeleteConfirm("")
+    setDeleteError(null)
+    setDeleteModal({ id: tenant.id, name: tenant.name })
+  }
+
+  async function deleteTenant() {
+    if (!deleteModal || deleteConfirm !== deleteModal.name) return
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/admin/tenants/${deleteModal.id}`, { method: "DELETE" })
+      const data = await res.json()
+      if (res.ok) {
+        setTenants((prev) => prev.filter((t) => t.id !== deleteModal.id))
+        setDeleteModal(null)
+      } else {
+        setDeleteError(data.error ?? "Erro ao excluir")
+      }
+    } catch {
+      setDeleteError("Falha de conexão")
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   function savePlan() {
@@ -265,6 +295,14 @@ export default function AdminTenantsClient({ tenants: initial }: { tenants: Tena
                           >
                             {tenant.isActive ? "Desativar" : "Ativar"}
                           </button>
+                          <button
+                            onClick={() => openDeleteModal(tenant)}
+                            disabled={isPending}
+                            className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-red-900/40 text-red-500 hover:bg-red-950/30 transition-all disabled:opacity-50"
+                            title="Excluir salão permanentemente"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -281,6 +319,64 @@ export default function AdminTenantsClient({ tenants: initial }: { tenants: Tena
           </p>
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      {deleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.8)" }}>
+          <div className="rounded-2xl border border-red-900/50 w-full max-w-md" style={{ backgroundColor: "#111111" }}>
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-red-900/30">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "#7f1d1d30" }}>
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-semibold" style={{ fontFamily: "var(--font-cormorant)", fontSize: "1.15rem" }}>
+                  Excluir salão permanentemente
+                </h3>
+                <p className="text-red-400 text-xs mt-0.5">Esta ação não pode ser desfeita</p>
+              </div>
+              <button onClick={() => setDeleteModal(null)} className="ml-auto text-zinc-500 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-zinc-400 text-sm">
+                Todos os dados do salão <span className="text-white font-semibold">{deleteModal.name}</span> serão excluídos permanentemente:
+                agendamentos, barbeiros, serviços, assinatura e usuários vinculados.
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-2">
+                  Digite o nome do salão para confirmar
+                </label>
+                <input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder={deleteModal.name}
+                  className="w-full bg-zinc-900 border border-red-900/40 text-white placeholder:text-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-red-500 transition-all"
+                />
+              </div>
+              {deleteError && <p className="text-red-400 text-xs">{deleteError}</p>}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-red-900/20">
+              <button
+                onClick={() => setDeleteModal(null)}
+                className="px-4 py-2 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white text-sm transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={deleteTenant}
+                disabled={deleteConfirm !== deleteModal.name || isDeleting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-4 h-4" />
+                {isDeleting ? "Excluindo..." : "Excluir permanentemente"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Plan modal */}
       {planModal && (
