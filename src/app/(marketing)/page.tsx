@@ -1,4 +1,8 @@
+export const dynamic = "force-dynamic"
+
 import Link from "next/link"
+import { prisma } from "@/lib/prisma"
+import { PLAN_PRICES, PLAN_LIMITS } from "@/lib/plans"
 
 const FEATURES = [
   {
@@ -17,71 +21,93 @@ const FEATURES = [
     desc: "Confirmações e lembretes automáticos via WhatsApp. Reduza faltas em até 60%.",
   },
   {
-    icon: "💰",
-    title: "Controle financeiro",
-    desc: "Receita diária, mensal e por barbeiro. Saiba exatamente onde seu dinheiro está.",
+    icon: "💳",
+    title: "Pagamento online com PIX",
+    desc: "Aceite sinal e pagamentos via PIX direto na plataforma. Receba antes do cliente chegar.",
   },
   {
     icon: "👥",
     title: "Multi-barbeiros",
-    desc: "Cada barbeiro com sua própria agenda, horários e serviços. Escale do jeito certo.",
+    desc: "Cada barbeiro com sua própria agenda, horários e serviços. Gerencie de 2 até ilimitados profissionais conforme seu plano.",
   },
   {
-    icon: "🔗",
-    title: "Link de agendamento",
-    desc: "Página pública da sua barbearia para compartilhar no Instagram, Google e WhatsApp.",
+    icon: "🎯",
+    title: "Programa de fidelidade",
+    desc: "Fidelize clientes com sistema de pontos e recompensas. Exclusivo no plano Premium.",
   },
 ]
 
-const PLANS = [
-  {
-    name: "Basic",
-    price: "R$ 99",
-    period: "/mês",
-    desc: "Para barbearias que estão começando",
-    features: [
-      "Até 2 barbeiros",
-      "Agendamento online ilimitado",
-      "Notificações no WhatsApp",
-      "Relatórios básicos",
-      "Histórico de 30 dias",
-    ],
-    cta: "Começar grátis",
-    highlighted: false,
-  },
-  {
-    name: "Pro",
-    price: "R$ 199",
-    period: "/mês",
-    desc: "Para barbearias em crescimento",
-    features: [
-      "Até 5 barbeiros",
-      "Pagamento online (cartão + PIX)",
-      "WhatsApp + SMS",
-      "Relatórios completos",
-      "Histórico de 6 meses",
-    ],
-    cta: "Começar grátis",
-    highlighted: true,
-  },
-  {
-    name: "Premium",
-    price: "R$ 399",
-    period: "/mês",
-    desc: "Para redes e grandes barbearias",
-    features: [
-      "Barbeiros ilimitados",
-      "Domínio próprio",
-      "Relatórios avançados",
-      "Histórico ilimitado",
-      "Programa de fidelidade",
-    ],
-    cta: "Falar com vendas",
-    highlighted: false,
-  },
-]
+function planFeatures(tier: "BASIC" | "PRO" | "PREMIUM"): string[] {
+  const l = PLAN_LIMITS[tier]
+  const out: string[] = []
+  out.push(l.maxBarbers === null ? "Barbeiros ilimitados" : `Até ${l.maxBarbers} barbeiros`)
+  out.push(
+    l.maxAppointmentsPerMonth === null
+      ? "Agendamentos ilimitados"
+      : `${l.maxAppointmentsPerMonth} agendamentos/mês`
+  )
+  if (l.whatsappNotifications) out.push("Notificações por WhatsApp")
+  if (l.onlinePayments) out.push("Pagamento online (PIX + sinal)")
+  if (l.loyaltyProgram) out.push("Programa de fidelidade")
+  if (l.customDomain) out.push("Domínio próprio")
+  if (l.apiAccess) out.push("Acesso à API")
+  out.push(
+    l.analyticsHistoryDays === null
+      ? "Relatórios completos e ilimitados"
+      : `Relatórios (${l.analyticsHistoryDays === 30 ? "30 dias" : "6 meses"})`
+  )
+  return out
+}
 
-export default function LandingPage() {
+function formatPrice(cents: number): string {
+  return `R$ ${(cents / 100).toLocaleString("pt-BR")}`
+}
+
+export default async function LandingPage() {
+  const config = await prisma.globalConfig.findUnique({
+    where: { id: "singleton" },
+    select: { planPriceBasic: true, planPricePro: true, planPricePremium: true },
+  })
+
+  const prices = {
+    BASIC:   config?.planPriceBasic   ?? PLAN_PRICES.BASIC,
+    PRO:     config?.planPricePro     ?? PLAN_PRICES.PRO,
+    PREMIUM: config?.planPricePremium ?? PLAN_PRICES.PREMIUM,
+  }
+
+  const PLANS = [
+    {
+      tier: "BASIC" as const,
+      name: "Basic",
+      price: formatPrice(prices.BASIC),
+      period: "/mês",
+      desc: "Para barbearias que estão começando",
+      features: planFeatures("BASIC"),
+      cta: "Começar grátis",
+      highlighted: false,
+    },
+    {
+      tier: "PRO" as const,
+      name: "Pro",
+      price: formatPrice(prices.PRO),
+      period: "/mês",
+      desc: "Para barbearias em crescimento",
+      features: planFeatures("PRO"),
+      cta: "Começar grátis",
+      highlighted: true,
+    },
+    {
+      tier: "PREMIUM" as const,
+      name: "Premium",
+      price: formatPrice(prices.PREMIUM),
+      period: "/mês",
+      desc: "Para redes e grandes barbearias",
+      features: planFeatures("PREMIUM"),
+      cta: "Começar grátis",
+      highlighted: false,
+    },
+  ]
+
   return (
     <>
       {/* Hero */}
@@ -138,7 +164,7 @@ export default function LandingPage() {
             </h1>
 
             <p className="text-zinc-400 text-lg md:text-xl leading-relaxed mb-12 max-w-2xl">
-              Sistema completo de agendamento para barbearias brasileiras. Clientes agendam online, barbeiros gerenciam pelo celular, você acompanha tudo em tempo real.
+              Sistema completo de agendamento para barbearias brasileiras. Clientes agendam online, barbeiros gerenciam pelo celular, você recebe via PIX e acompanha tudo em tempo real.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4">
@@ -167,7 +193,14 @@ export default function LandingPage() {
       <div className="border-y border-zinc-800/50 bg-zinc-900/30 py-5">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-4 text-zinc-500 text-sm">
-            {["✂ Agendamento 24/7", "💬 Lembretes WhatsApp", "📊 Relatórios em tempo real", "🔒 Dados seguros", "⚡ Setup em 5 minutos"].map((item) => (
+            {[
+              "✂ Agendamento 24/7",
+              "💬 Lembretes WhatsApp",
+              "💳 PIX integrado",
+              "📊 Relatórios em tempo real",
+              "🎯 Programa de fidelidade",
+              "⚡ Setup em 5 minutos",
+            ].map((item) => (
               <span key={item} className="tracking-wide">{item}</span>
             ))}
           </div>
