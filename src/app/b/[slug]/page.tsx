@@ -100,14 +100,14 @@ export default async function BookingHomePage({
                 <img
                   src={tenant.logoUrl}
                   alt={tenant.name}
-                  className="w-20 h-20 rounded-full mx-auto mb-6 object-cover ring-2 ring-white/10"
+                  className="w-32 h-32 rounded-full mx-auto mb-6 object-cover ring-2 ring-white/10"
                 />
               ) : (
                 <div
-                  className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center ring-2 ring-white/10"
+                  className="w-32 h-32 rounded-full mx-auto mb-6 flex items-center justify-center ring-2 ring-white/10"
                   style={{ backgroundColor: `${accent}18` }}
                 >
-                  <Scissors className="w-8 h-8" style={{ color: accent }} />
+                  <Scissors className="w-12 h-12" style={{ color: accent }} />
                 </div>
               )}
 

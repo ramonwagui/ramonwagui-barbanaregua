@@ -29,7 +29,7 @@ export default function AuthLayout({
         <div className="relative z-10 flex flex-col h-full px-12 py-16">
           {/* Logo */}
           <div className="mb-auto">
-            <Logo size="md" />
+            <Logo size="xl" />
           </div>
 
           {/* Big headline */}
@@ -72,7 +72,7 @@ export default function AuthLayout({
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="flex justify-center mb-10 lg:hidden">
-            <Logo size="md" />
+            <Logo size="lg" />
           </div>
           {children}
         </div>

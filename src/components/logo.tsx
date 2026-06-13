@@ -3,10 +3,10 @@ import Link from "next/link"
 
 type Props = {
   href?: string
-  size?: "sm" | "md" | "lg" | "fill"
+  size?: "sm" | "md" | "lg" | "xl" | "fill"
 }
 
-const FIXED_SIZES = { sm: 44, md: 64, lg: 96 }
+const FIXED_SIZES = { sm: 48, md: 80, lg: 112, xl: 160 }
 
 export function Logo({ href, size = "md" }: Props) {
   const isFill = size === "fill"
