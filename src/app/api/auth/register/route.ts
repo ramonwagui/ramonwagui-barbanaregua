@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { slugify } from "@/lib/tenant"
 import { registerSchema } from "@/lib/validations/auth"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
-import { addDays } from "date-fns"
+import { createTrialSubscription } from "@/lib/billing-client"
 
 type TxClient = Omit<
   typeof prisma,
@@ -66,18 +66,6 @@ export async function POST(req: Request) {
         data: { tenantId: tenant.id },
       })
 
-      const trialEndsAt = addDays(new Date(), 14)
-      await tx.subscription.create({
-        data: {
-          tenantId: tenant.id,
-          plan: "BASIC",
-          status: "TRIALING",
-          currentPeriodStart: new Date(),
-          currentPeriodEnd: trialEndsAt,
-          trialEndsAt,
-        },
-      })
-
       const defaultHours = [1, 2, 3, 4, 5, 6].map((day) => ({
         tenantId: tenant.id,
         dayOfWeek: day,
@@ -96,6 +84,12 @@ export async function POST(req: Request) {
 
       return { userId: user.id, tenantId: tenant.id, slug }
     })
+
+    // Cria o trial de 14 dias no Billing Service (fora da transação principal).
+    // Se falhar, o admin pode criar manualmente — o tenant existe e é válido.
+    createTrialSubscription(result.tenantId, data.email).catch((err) =>
+      console.error("[REGISTER] falha ao criar subscription no Billing Service:", err)
+    )
 
     return NextResponse.json({ success: true, ...result }, { status: 201 })
   } catch (error) {

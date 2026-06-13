@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server"
 import { jwtVerify } from "jose"
 import { auth } from "@/lib/auth"
-import { exchangeCodeForToken, getAccountInfo } from "@/lib/mercadopago"
-import { saveConnection } from "@/lib/mp-account"
+import { saveMpConnection } from "@/lib/payment-client"
 
 /**
- * Callback do OAuth do Mercado Pago. Valida o `state` assinado, garante que o
- * dono logado é o mesmo do `state`, troca o `code` por tokens do salão e salva
- * a conexão (tokens criptografados). Redireciona de volta para Configurações.
+ * Callback do OAuth do Mercado Pago. Valida o `state` assinado (CSRF), garante
+ * que o dono logado é o mesmo do `state`, delega o exchange de código e
+ * armazenamento de tokens ao Payment Service.
  */
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -22,7 +21,6 @@ export async function GET(req: Request) {
     return NextResponse.redirect(settings)
   }
 
-  // Valida o state (CSRF) e extrai o tenantId.
   let tenantId: string
   try {
     const secret = new TextEncoder().encode(process.env.AUTH_SECRET)
@@ -34,7 +32,6 @@ export async function GET(req: Request) {
     return NextResponse.redirect(settings)
   }
 
-  // Confere que quem está concluindo é o dono do mesmo salão do state.
   const session = await auth()
   if (
     !session?.user?.tenantId ||
@@ -46,17 +43,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    const tokens = await exchangeCodeForToken(code)
-    let nickname: string | null = null
-    try {
-      nickname = (await getAccountInfo(tokens.accessToken)).nickname
-    } catch {
-      // nickname é só cosmético; segue mesmo se falhar.
-    }
-    await saveConnection(tenantId, tokens, nickname)
+    await saveMpConnection(tenantId, code)
     settings.searchParams.set("mp", "connected")
   } catch (err) {
-    console.error("[MP callback] falha ao conectar:", err)
+    console.error("[MP callback] falha ao conectar via Payment Service:", err)
     settings.searchParams.set("mp", "error")
   }
 

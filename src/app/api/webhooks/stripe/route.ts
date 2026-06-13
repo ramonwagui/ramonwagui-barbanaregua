@@ -1,60 +1,35 @@
-import { NextResponse } from "next/server"
-import type Stripe from "stripe"
-import { stripe } from "@/lib/stripe"
-import { syncStripeSubscription, markPastDueBySubscriptionId } from "@/lib/billing"
-
 /**
- * Webhook do Stripe (cobrança da assinatura do salão). Mantém o modelo
- * Subscription em sincronia com o Stripe. Assinatura validada com
- * STRIPE_WEBHOOK_SECRET sobre o corpo cru.
+ * Compatibilidade retroativa: encaminha eventos Stripe para o Billing Service.
+ * Após atualizar o endpoint no dashboard do Stripe para apontar diretamente ao
+ * Billing Service (:3006/webhooks/stripe), este arquivo pode ser removido.
  */
+
+import { NextResponse } from "next/server"
+
+const BILLING_URL = (process.env.BILLING_SERVICE_URL ?? "http://localhost:3006").replace(/\/$/, "")
+const INTERNAL_KEY = process.env.INTERNAL_API_KEY ?? ""
+
 export async function POST(req: Request) {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET
-  const sig = req.headers.get("stripe-signature")
+  const sig = req.headers.get("stripe-signature") ?? ""
   const raw = await req.text()
 
-  if (!secret || !sig) {
-    return NextResponse.json({ error: "Webhook não configurado" }, { status: 400 })
-  }
-
-  let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(raw, sig, secret)
-  } catch (err) {
-    console.error("[stripe webhook] assinatura inválida:", err)
-    return NextResponse.json({ error: "Assinatura inválida" }, { status: 400 })
-  }
+    const res = await fetch(`${BILLING_URL}/webhooks/stripe`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "stripe-signature": sig,
+        "x-internal-key": INTERNAL_KEY,
+      },
+      body: raw,
+    })
 
-  try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const s = event.data.object as Stripe.Checkout.Session
-        if (s.subscription) {
-          const subId = typeof s.subscription === "string" ? s.subscription : s.subscription.id
-          const sub = await stripe.subscriptions.retrieve(subId)
-          await syncStripeSubscription(sub)
-        }
-        break
-      }
-      case "customer.subscription.created":
-      case "customer.subscription.updated":
-      case "customer.subscription.deleted": {
-        await syncStripeSubscription(event.data.object as Stripe.Subscription)
-        break
-      }
-      case "invoice.payment_failed": {
-        const inv = event.data.object as unknown as { subscription?: string | { id: string } }
-        const subId =
-          typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id
-        if (subId) await markPastDueBySubscriptionId(subId)
-        break
-      }
-      default:
-        break
-    }
+    const body = await res.json().catch(() => ({ received: true }))
+    return NextResponse.json(body, { status: res.status })
   } catch (err) {
-    console.error("[stripe webhook] erro ao processar", event.type, err)
+    console.error("[stripe proxy] Billing Service indisponível:", err)
+    // Retorna 200 para o Stripe não re-enviar — o evento será reprocessado
+    // quando o Billing Service voltar (fila de retentativa do Stripe é 72h)
+    return NextResponse.json({ received: true }, { status: 200 })
   }
-
-  return NextResponse.json({ received: true }, { status: 200 })
 }

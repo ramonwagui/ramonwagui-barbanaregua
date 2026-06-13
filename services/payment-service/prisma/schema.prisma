@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Sem FK para outros serviços — tenantId é só uma string de referência.
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentProvider {
+  STRIPE
+  MERCADO_PAGO
+  CASH
+  PIX
+}
+
+model Payment {
+  id                String          @id @default(cuid())
+  tenantId          String
+  // appointmentId ou packageId (referência cross-service — sem FK)
+  appointmentId     String?         @unique
+  packageId         String?
+  amount            Decimal         @db.Decimal(10, 2)
+  currency          String          @default("BRL")
+  status            PaymentStatus   @default(PENDING)
+  provider          PaymentProvider
+  providerPaymentId String?
+  pixCode           String?
+  pixQrCode         String?
+  paidAt            DateTime?
+  refundedAt        DateTime?
+  refundAmount      Decimal?        @db.Decimal(10, 2)
+  // kind: "appointment" | "package"
+  metadata          Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([tenantId])
+  @@index([providerPaymentId])
+}
+
+// Tokens OAuth criptografados com AES-256-GCM (ver src/lib/crypto.ts).
+model MercadoPagoConnection {
+  id           String   @id @default(cuid())
+  tenantId     String   @unique
+  mpUserId     String
+  mpNickname   String?
+  accessToken  String   @db.Text
+  refreshToken String   @db.Text
+  publicKey    String?
+  expiresAt    DateTime
+  scope        String?
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

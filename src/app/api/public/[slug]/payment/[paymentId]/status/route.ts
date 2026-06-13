@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { reconcilePayment } from "@/lib/payment-reconcile"
+import { getPaymentStatus } from "@/lib/payment-client"
 
 /**
- * Consultado em polling pela página de pagamento PIX. Reconcilia com o
- * Mercado Pago (fallback ao webhook) e devolve o status atual.
+ * Polling de status do PIX de depósito. Proxy para o Payment Service.
  */
 export async function GET(
   _req: Request,
@@ -12,24 +10,11 @@ export async function GET(
 ) {
   const { paymentId } = await params
 
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
-    include: { appointment: { select: { id: true, status: true } } },
-  })
+  const result = await getPaymentStatus(paymentId)
 
-  if (!payment || !payment.appointment) {
+  if (result.status === "NOT_FOUND") {
     return NextResponse.json({ error: "Pagamento não encontrado" }, { status: 404 })
   }
 
-  // Slot já liberado por expiração (cron ou booking) → não tente reconciliar.
-  if (payment.appointment.status === "CANCELLED") {
-    return NextResponse.json({ status: "EXPIRED", appointmentId: payment.appointmentId })
-  }
-
-  const status = await reconcilePayment(paymentId)
-
-  return NextResponse.json({
-    status, // PENDING | PAID | FAILED
-    appointmentId: payment.appointmentId,
-  })
+  return NextResponse.json({ status: result.status })
 }

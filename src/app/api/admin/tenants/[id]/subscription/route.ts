@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { overrideSubscription, invalidateSubscriptionCache } from "@/lib/billing-client"
 import { z } from "zod"
 
 const schema = z.object({
@@ -10,6 +10,7 @@ const schema = z.object({
   trialEndsAt: z.coerce.date().nullable().optional(),
 })
 
+/** Proxy para o Billing Service — override manual de assinatura (super admin). */
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -20,33 +21,20 @@ export async function PATCH(
   }
 
   const { id: tenantId } = await params
-
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } })
-  if (!tenant) {
-    return NextResponse.json({ error: "Barbearia não encontrada" }, { status: 404 })
-  }
-
   const body = await req.json()
   const data = schema.parse(body)
 
-  const subscription = await prisma.subscription.upsert({
-    where: { tenantId },
-    update: {
-      plan: data.plan,
-      status: data.status,
-      currentPeriodEnd: data.currentPeriodEnd,
-      trialEndsAt: data.trialEndsAt ?? null,
-      currentPeriodStart: new Date(),
-    },
-    create: {
-      tenantId,
-      plan: data.plan,
-      status: data.status,
-      currentPeriodStart: new Date(),
-      currentPeriodEnd: data.currentPeriodEnd,
-      trialEndsAt: data.trialEndsAt ?? null,
-    },
+  const subscription = await overrideSubscription(tenantId, {
+    plan: data.plan,
+    status: data.status,
+    currentPeriodEnd: data.currentPeriodEnd.toISOString(),
+    trialEndsAt: data.trialEndsAt?.toISOString() ?? null,
   })
 
+  if (!subscription) {
+    return NextResponse.json({ error: "Billing Service indisponível" }, { status: 503 })
+  }
+
+  await invalidateSubscriptionCache(tenantId)
   return NextResponse.json({ subscription })
 }

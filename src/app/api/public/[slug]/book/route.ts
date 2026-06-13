@@ -5,11 +5,11 @@ import {
   createAppointmentSchema,
   depositEmailSchema,
 } from "@/lib/validations/appointment"
-import { sendBookingConfirmation, sendBarberNewBooking } from "@/lib/notifications"
+import { publishEvent } from "@/lib/events"
+import { toAppointmentPayload } from "@/lib/event-mappers"
 import { isSlotAvailable } from "@/lib/availability"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
-import { createPixPayment } from "@/lib/mercadopago"
-import { getTenantMpToken, MpNotConnectedError } from "@/lib/mp-account"
+import { createDepositPix, isMpConnected } from "@/lib/payment-client"
 import { getLoyaltyStatus, normalizeLoyaltyPhone } from "@/lib/loyalty"
 import { hasUsableCredit, consumeCreditForService } from "@/lib/packages"
 import { addMinutes } from "date-fns"
@@ -145,24 +145,13 @@ export async function POST(
     let payerEmail = ""
     let depositAmount: Prisma.Decimal | null = null
     let paymentExpiresAt: Date | null = null
-    let mpAccessToken = ""
 
     if (requireDeposit) {
-      // O salão precisa ter conectado a própria conta do Mercado Pago para
-      // que o sinal caia direto na conta DELE. Resolve o token (com refresh)
-      // antes de criar a reserva — se não estiver conectado, nem cria.
-      try {
-        mpAccessToken = await getTenantMpToken(tenant.id)
-      } catch (err) {
-        if (err instanceof MpNotConnectedError) {
-          return NextResponse.json(
-            { error: "Pagamento indisponível: a barbearia ainda não conectou o Mercado Pago." },
-            { status: 503 }
-          )
-        }
-        console.error("[BOOK] Falha ao resolver token MP:", err)
+      // Verifica se o salão tem Mercado Pago conectado antes de criar a reserva.
+      const connected = await isMpConnected(tenant.id).catch(() => false)
+      if (!connected) {
         return NextResponse.json(
-          { error: "Pagamento indisponível no momento. Tente novamente mais tarde." },
+          { error: "Pagamento indisponível: a barbearia ainda não conectou o Mercado Pago." },
           { status: 503 }
         )
       }
@@ -265,8 +254,7 @@ export async function POST(
 
     // ── Sem sinal: fluxo original (confirma na hora) ──
     if (!requireDeposit) {
-      sendBookingConfirmation(appointment).catch(console.error)
-      sendBarberNewBooking(appointment).catch(console.error)
+      publishEvent({ type: "appointment.confirmed", payload: toAppointmentPayload(appointment) })
 
       return NextResponse.json(
         {
@@ -278,52 +266,26 @@ export async function POST(
       )
     }
 
-    // ── Com sinal: cria Payment + PIX (fora da transação p/ não segurar o lock) ──
+    // ── Com sinal: chama o Payment Service para criar PIX ────────────────────
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
     try {
-      const payment = await prisma.payment.create({
-        data: {
-          tenantId: tenant.id,
-          appointmentId: appointment.id,
-          amount: depositAmount!,
-          status: "PENDING",
-          provider: "MERCADO_PAGO",
-          metadata: {
-            kind: "DEPOSIT",
-            appointmentTotal: totalPrice.toString(),
-          },
-        },
-      })
-
-      const pix = await createPixPayment(
-        {
-          amount: Number(depositAmount!),
-          description: `Sinal — ${tenant.name}`,
-          payerEmail,
-          externalReference: payment.id,
-          expiresAt: paymentExpiresAt!,
-          notificationUrl: `${baseUrl}/api/webhooks/mercadopago`,
-        },
-        mpAccessToken
-      )
-
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          providerPaymentId: pix.id,
-          pixCode: pix.qrCode,
-          pixQrCode: pix.qrCodeBase64,
-          status: "PROCESSING",
-        },
+      const pix = await createDepositPix({
+        tenantId: tenant.id,
+        appointmentId: appointment.id,
+        amount: Number(depositAmount!),
+        description: `Sinal — ${tenant.name}`,
+        payerEmail,
+        expiresAt: paymentExpiresAt!,
+        notificationUrl: `${baseUrl}/api/webhooks/mercadopago`,
       })
 
       return NextResponse.json(
         {
           success: true,
           requiresPayment: true,
-          paymentId: payment.id,
-          pixCode: pix.qrCode,
-          pixQrCode: pix.qrCodeBase64,
+          paymentId: pix.paymentId,
+          pixCode: pix.pixCode,
+          pixQrCode: pix.pixQrCode,
           depositAmount: Number(depositAmount!),
           expiresAt: paymentExpiresAt!.toISOString(),
           appointment: serializeAppointment(appointment),
@@ -332,15 +294,17 @@ export async function POST(
       )
     } catch (err) {
       // Falha ao gerar o PIX: libera o slot cancelando a reserva PENDING.
-      console.error("[BOOK] Falha ao gerar PIX:", err)
-      await prisma.appointment.update({
-        where: { id: appointment.id },
-        data: {
-          status: "CANCELLED",
-          cancelledAt: new Date(),
-          cancellationReason: "Falha ao gerar pagamento do sinal",
-        },
-      }).catch(console.error)
+      console.error("[BOOK] Falha ao gerar PIX via Payment Service:", err)
+      await prisma.appointment
+        .update({
+          where: { id: appointment.id },
+          data: {
+            status: "CANCELLED",
+            cancelledAt: new Date(),
+            cancellationReason: "Falha ao gerar pagamento do sinal",
+          },
+        })
+        .catch(console.error)
 
       return NextResponse.json(
         { error: "Não foi possível gerar o pagamento do sinal. Tente novamente." },

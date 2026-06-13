@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/prisma"
-import { Tenant, Subscription } from "@prisma/client"
+import { Tenant } from "@prisma/client"
+import {
+  getSubscription,
+  canAcceptBookings as subCanAcceptBookings,
+  type SubscriptionDTO,
+} from "@/lib/billing-client"
 
 export type TenantWithSubscription = Tenant & {
-  subscription: Subscription | null
+  subscription: SubscriptionDTO | null
 }
 
 export class TenantNotFoundError extends Error {
@@ -12,48 +17,24 @@ export class TenantNotFoundError extends Error {
   }
 }
 
-export async function getTenantBySlug(
-  slug: string
-): Promise<TenantWithSubscription> {
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug },
-    include: { subscription: true },
-  })
-
+export async function getTenantBySlug(slug: string): Promise<TenantWithSubscription> {
+  const tenant = await prisma.tenant.findUnique({ where: { slug } })
   if (!tenant || !tenant.isActive) throw new TenantNotFoundError()
-  return tenant
+
+  const subscription = await getSubscription(tenant.id)
+  return { ...tenant, subscription }
 }
 
-export async function getTenantById(
-  id: string
-): Promise<TenantWithSubscription> {
-  const tenant = await prisma.tenant.findUnique({
-    where: { id },
-    include: { subscription: true },
-  })
-
+export async function getTenantById(id: string): Promise<TenantWithSubscription> {
+  const tenant = await prisma.tenant.findUnique({ where: { id } })
   if (!tenant || !tenant.isActive) throw new TenantNotFoundError()
-  return tenant
+
+  const subscription = await getSubscription(id)
+  return { ...tenant, subscription }
 }
 
-/**
- * Regra de negócio: a barbearia só aceita agendamentos públicos se a
- * assinatura estiver vigente. Bloqueia assinaturas canceladas/não pagas e
- * trials já expirados (independente de webhook ter atualizado o status).
- * PAST_DUE é tolerado como período de carência.
- */
 export function canAcceptBookings(tenant: TenantWithSubscription): boolean {
-  const sub = tenant.subscription
-  if (!sub) return false
-  if (sub.status === "CANCELLED" || sub.status === "UNPAID") return false
-  if (
-    sub.status === "TRIALING" &&
-    sub.trialEndsAt &&
-    sub.trialEndsAt.getTime() < Date.now()
-  ) {
-    return false
-  }
-  return true
+  return subCanAcceptBookings(tenant.subscription)
 }
 
 export function slugify(name: string): string {

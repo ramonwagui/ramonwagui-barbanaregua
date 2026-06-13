@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATION SERVICE — Schema próprio
+// Sem FK para outros serviços: tenantId é string sem constraint.
+// Cada serviço é dono dos seus próprios dados.
+// ─────────────────────────────────────────────
+
+enum NotifChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+}
+
+enum NotifStatus {
+  PENDING
+  SENT
+  FAILED
+  DELIVERED
+}
+
+enum NotifType {
+  BOOKING_CONFIRMATION
+  BOOKING_REMINDER_24H
+  BOOKING_REMINDER_1H
+  BOOKING_CANCELLED
+  BOOKING_RESCHEDULED
+  BARBER_NEW_BOOKING
+  BARBER_CANCELLATION
+}
+
+model Notification {
+  id             String      @id @default(cuid())
+  tenantId       String
+  appointmentId  String?
+  recipientPhone String?
+  recipientEmail String?
+  channel        NotifChannel
+  type           NotifType
+  status         NotifStatus  @default(PENDING)
+  body           String       @db.Text
+  providerMsgId  String?
+  scheduledFor   DateTime?
+  sentAt         DateTime?
+  errorMsg       String?
+  retryCount     Int          @default(0)
+  createdAt      DateTime     @default(now())
+
+  @@index([tenantId, type])
+  @@index([scheduledFor, status])
+  @@index([appointmentId])
+}
+
+model NotifTemplate {
+  id           String       @id @default(cuid())
+  tenantId     String
+  type         NotifType
+  channel      NotifChannel
+  bodyTemplate String       @db.Text
+  isActive     Boolean      @default(true)
+
+  @@unique([tenantId, type, channel])
+  @@index([tenantId])
+}
+
+// Credenciais Z-API por tenant (fallback WhatsApp)
+model WebhookSetting {
+  id           String   @id @default(cuid())
+  tenantId     String   @unique
+  zapiToken    String?
+  zapiInstance String?
+  twilioSid    String?
+  twilioToken  String?
+  resendApiKey String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+}

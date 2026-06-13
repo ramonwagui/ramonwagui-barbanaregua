@@ -12,7 +12,7 @@ import FidelidadeClient from "./fidelidade-client"
 import NotifBarbeiroClient from "./notif-barbeiro-client"
 import BookingLinkCard from "@/components/booking-link-card"
 import AnunciosClient from "./anuncios-client"
-import { getTenantConnectionInfo } from "@/lib/mp-account"
+import { getMpConnectionInfo } from "@/lib/payment-client"
 
 export default async function ConfiguracoesPage() {
   const session = await auth()
@@ -32,7 +32,7 @@ export default async function ConfiguracoesPage() {
         })
       : Promise.resolve([]),
     isOwner
-      ? getTenantConnectionInfo(session.user.tenantId)
+      ? getMpConnectionInfo(session.user.tenantId)
       : Promise.resolve(null),
     isOwner
       ? prisma.service.findMany({
@@ -80,7 +80,7 @@ export default async function ConfiguracoesPage() {
               connected: mpInfo?.connected ?? false,
               nickname: mpInfo?.nickname ?? null,
               connectedAt: mpInfo?.connectedAt
-                ? mpInfo.connectedAt.toISOString()
+                ? String(mpInfo.connectedAt)
                 : null,
             }}
           />

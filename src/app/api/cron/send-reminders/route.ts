@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { sendBookingReminder } from "@/lib/notifications"
+import { publishEvent } from "@/lib/events"
+import { toAppointmentPayload } from "@/lib/event-mappers"
 
 /**
  * Cron (Railway): envia o lembrete de agendamento (template barbearia_lembrete)
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
       scheduledAt: { gte: now, lte: in24h },
     },
     include: {
-      barber: { include: { user: { select: { name: true } } } },
+      barber: { include: { user: { select: { name: true, phone: true } } } },
       services: { include: { service: true } },
       tenant: true,
     },
@@ -34,7 +35,9 @@ export async function GET(req: Request) {
   let sent = 0
   for (const appt of due) {
     try {
-      await sendBookingReminder(appt)
+      // Publica o evento: o Notification Service consome e envia o lembrete.
+      // Marca reminderSent=true imediatamente para não reenviar em loop.
+      publishEvent({ type: "appointment.reminder_due", payload: toAppointmentPayload(appt) })
       await prisma.appointment.update({
         where: { id: appt.id },
         data: { reminderSent: true },

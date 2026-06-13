@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { reconcilePayment } from "@/lib/payment-reconcile"
+import { getPaymentStatus } from "@/lib/payment-client"
 
 /**
- * Detalhe + status do pagamento de um pacote (consultado em polling pela página
- * de pagamento). Reconcilia com o Mercado Pago (fallback ao webhook) e devolve
- * o QR e o status atual.
+ * Detalhe + status do pagamento de um pacote. Reconcilia via Payment Service
+ * e retorna QR + status. paymentId é o ID do Payment Service.
  */
 export async function GET(
   _req: Request,
@@ -13,37 +12,34 @@ export async function GET(
 ) {
   const { paymentId } = await params
 
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
-    select: {
-      pixCode: true,
-      pixQrCode: true,
-      amount: true,
-      status: true,
-      clientPackage: { select: { status: true, creditsTotal: true } },
-    },
+  // Lookup do ClientPackage pelo paymentId (gravado na compra).
+  const clientPackage = await prisma.clientPackage.findUnique({
+    where: { paymentId },
+    select: { status: true, creditsTotal: true },
   })
 
-  if (!payment || !payment.clientPackage) {
+  // Reconcilia com o Payment Service (retorna QR e status).
+  const result = await getPaymentStatus(paymentId)
+
+  if (result.status === "NOT_FOUND") {
     return NextResponse.json({ error: "Pagamento não encontrado" }, { status: 404 })
   }
 
-  let status: "PENDING" | "PAID" | "FAILED" = "PENDING"
-  if (payment.status === "PAID" || payment.clientPackage.status === "ACTIVE") {
-    status = "PAID"
-  } else if (payment.clientPackage.status === "CANCELLED") {
-    status = "FAILED"
-  } else {
-    status = await reconcilePayment(paymentId)
-      .then((s) => (s === "NOT_FOUND" ? "PENDING" : s))
-      .catch(() => "PENDING")
-  }
+  // Se o ClientPackage já estiver ACTIVE, o pagamento está confirmado.
+  const status =
+    clientPackage?.status === "ACTIVE"
+      ? "PAID"
+      : clientPackage?.status === "CANCELLED"
+        ? "FAILED"
+        : result.status === "NOT_FOUND"
+          ? "PENDING"
+          : result.status
 
   return NextResponse.json({
     status,
-    pixCode: payment.pixCode,
-    pixQrCode: payment.pixQrCode,
-    amount: Number(payment.amount),
-    credits: payment.clientPackage.creditsTotal,
+    pixCode: result.pixCode ?? null,
+    pixQrCode: result.pixQrCode ?? null,
+    amount: result.amount ?? null,
+    credits: clientPackage?.creditsTotal ?? null,
   })
 }

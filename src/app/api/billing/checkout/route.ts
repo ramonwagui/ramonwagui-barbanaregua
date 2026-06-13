@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { createCheckoutSession, isBillingConfigured } from "@/lib/billing"
+import { createCheckoutSession } from "@/lib/billing-client"
 import { PlanTier } from "@prisma/client"
 
-/** Cria a sessão de Checkout do Stripe para o dono assinar um plano. */
+/** Proxy para o Billing Service — cria sessão de Checkout do Stripe. */
 export async function POST(req: Request) {
   const session = await auth()
   if (!session?.user?.tenantId) {
@@ -13,9 +13,6 @@ export async function POST(req: Request) {
   if (session.user.role === "BARBER") {
     return NextResponse.json({ error: "Apenas o dono pode assinar" }, { status: 403 })
   }
-  if (!isBillingConfigured()) {
-    return NextResponse.json({ error: "Cobrança indisponível no momento." }, { status: 503 })
-  }
 
   const body = await req.json().catch(() => ({}))
   const plan = body?.plan as PlanTier
@@ -23,36 +20,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Plano inválido" }, { status: 400 })
   }
 
-  const [sub, config] = await Promise.all([
-    prisma.subscription.findUnique({
-      where: { tenantId: session.user.tenantId },
-      select: { stripeCustomerId: true },
-    }),
-    prisma.globalConfig.findUnique({
-      where: { id: "singleton" },
-      select: { stripePriceBasic: true, stripePricePro: true, stripePricePremium: true },
-    }),
-  ])
-
-  // Price ID: banco tem prioridade sobre env var
+  // Price ID do banco (super admin pode sobrescrever via GlobalConfig)
+  const config = await prisma.globalConfig.findUnique({
+    where: { id: "singleton" },
+    select: { stripePriceBasic: true, stripePricePro: true, stripePricePremium: true },
+  })
   const dbPriceIds: Record<string, string | null | undefined> = {
     BASIC: config?.stripePriceBasic,
     PRO: config?.stripePricePro,
     PREMIUM: config?.stripePricePremium,
   }
-  const resolvedPriceId = dbPriceIds[plan] || null
 
-  try {
-    const checkout = await createCheckoutSession({
-      tenantId: session.user.tenantId,
-      plan,
-      email: session.user.email ?? "",
-      customerId: sub?.stripeCustomerId,
-      priceIdOverride: resolvedPriceId,
-    })
-    return NextResponse.json({ url: checkout.url })
-  } catch (err) {
-    console.error("[billing/checkout]", err)
-    return NextResponse.json({ error: "Não foi possível iniciar o pagamento." }, { status: 500 })
+  const result = await createCheckoutSession({
+    tenantId: session.user.tenantId,
+    plan,
+    email: session.user.email ?? "",
+    priceIdOverride: dbPriceIds[plan] ?? null,
+  })
+
+  if (!result) {
+    return NextResponse.json({ error: "Não foi possível iniciar o pagamento." }, { status: 503 })
   }
+  return NextResponse.json({ url: result.url })
 }

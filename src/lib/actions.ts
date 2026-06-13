@@ -4,10 +4,13 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { AppointmentStatus } from "@prisma/client"
-import { refundDepositForCancellation } from "@/lib/payment-reconcile"
-import { disconnect as disconnectMp } from "@/lib/mp-account"
+import {
+  refundDepositForCancellation,
+  disconnectMp,
+} from "@/lib/payment-client"
 import { recordCompletedVisit } from "@/lib/loyalty"
-import { sendBarberCancellation } from "@/lib/notifications"
+import { publishEvent } from "@/lib/events"
+import { toAppointmentPayload } from "@/lib/event-mappers"
 import { getTenantById } from "@/lib/tenant"
 import { getPlanLimits } from "@/lib/plans"
 
@@ -68,7 +71,17 @@ export async function updateAppointmentStatus(appointmentId: string, status: App
   // Política de sinal: ao cancelar, estorna o sinal se houver antecedência
   // suficiente; NO_SHOW nunca estorna (barbeiro fica com o sinal).
   if (status === "CANCELLED") {
-    await refundDepositForCancellation(appointmentId).catch(console.error)
+    const apptForRefund = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      select: { scheduledAt: true, tenant: { select: { cancelRefundHours: true } } },
+    })
+    if (apptForRefund) {
+      await refundDepositForCancellation({
+        appointmentId,
+        scheduledAt: apptForRefund.scheduledAt,
+        cancelRefundHours: apptForRefund.tenant.cancelRefundHours,
+      }).catch(console.error)
+    }
 
     // Avisa o barbeiro quando quem cancela é o dono (o barbeiro que cancela
     // o próprio horário já sabe).
@@ -81,7 +94,7 @@ export async function updateAppointmentStatus(appointmentId: string, status: App
           tenant: true,
         },
       })
-      if (appt) sendBarberCancellation(appt).catch(console.error)
+      if (appt) publishEvent({ type: "appointment.cancelled", payload: { ...toAppointmentPayload(appt), cancellationReason: "Cancelado pelo painel", cancelledAt: new Date().toISOString() } })
     }
   }
 
@@ -128,7 +141,7 @@ export async function updateDepositSettings(data: {
   revalidatePath("/configuracoes")
 }
 
-/** Desconecta a conta do Mercado Pago do salão (remove os tokens). */
+/** Desconecta a conta do Mercado Pago do salão (remove os tokens via Payment Service). */
 export async function disconnectMercadoPago() {
   const session = await requireTenantOwner()
   await disconnectMp(session.user.tenantId!)

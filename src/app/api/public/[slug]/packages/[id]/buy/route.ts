@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getTenantBySlug, TenantNotFoundError } from "@/lib/tenant"
-import { getTenantMpToken, MpNotConnectedError } from "@/lib/mp-account"
-import { createPixPayment } from "@/lib/mercadopago"
+import { createPackagePix, isMpConnected } from "@/lib/payment-client"
 import { normalizePackagePhone } from "@/lib/packages"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 import { addMinutes } from "date-fns"
-import { Prisma } from "@prisma/client"
 
 const PIX_EXPIRY_MINUTES = 30
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -45,24 +43,17 @@ export async function POST(
       return NextResponse.json({ error: "Pacote não encontrado" }, { status: 404 })
     }
 
-    // Token do salão (dinheiro cai na conta dele).
-    let token: string
-    try {
-      token = await getTenantMpToken(tenant.id)
-    } catch (err) {
-      if (err instanceof MpNotConnectedError) {
-        return NextResponse.json(
-          { error: "Compra indisponível: a barbearia ainda não conectou o Mercado Pago." },
-          { status: 503 }
-        )
-      }
-      console.error("[PKG buy] token MP:", err)
-      return NextResponse.json({ error: "Indisponível no momento." }, { status: 503 })
+    const connected = await isMpConnected(tenant.id).catch(() => false)
+    if (!connected) {
+      return NextResponse.json(
+        { error: "Compra indisponível: a barbearia ainda não conectou o Mercado Pago." },
+        { status: 503 }
+      )
     }
 
     const expiresAt = addMinutes(new Date(), PIX_EXPIRY_MINUTES)
 
-    // Cria a compra (PENDING) + Payment.
+    // Cria o ClientPackage PENDING no monolito (créditos ficam aqui).
     const clientPackage = await prisma.clientPackage.create({
       data: {
         tenantId: tenant.id,
@@ -76,56 +67,36 @@ export async function POST(
     })
 
     try {
-      const payment = await prisma.payment.create({
-        data: {
-          tenantId: tenant.id,
-          amount: new Prisma.Decimal(pkg.price),
-          status: "PENDING",
-          provider: "MERCADO_PAGO",
-          metadata: { kind: "PACKAGE", packageId: pkg.id, clientPackageId: clientPackage.id },
-        },
-      })
-
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-      const pix = await createPixPayment(
-        {
-          amount: Number(pkg.price),
-          description: `Pacote ${pkg.name} — ${tenant.name}`,
-          payerEmail: guestEmail,
-          externalReference: payment.id,
-          expiresAt,
-          notificationUrl: `${baseUrl.replace(/\/$/, "")}/api/webhooks/mercadopago`,
-        },
-        token
-      )
-
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          providerPaymentId: pix.id,
-          pixCode: pix.qrCode,
-          pixQrCode: pix.qrCodeBase64,
-          status: "PROCESSING",
-        },
+      const pix = await createPackagePix({
+        tenantId: tenant.id,
+        packageId: clientPackage.id,
+        amount: Number(pkg.price),
+        description: `Pacote ${pkg.name} — ${tenant.name}`,
+        payerEmail: guestEmail,
+        expiresAt,
+        notificationUrl: `${baseUrl.replace(/\/$/, "")}/api/webhooks/mercadopago`,
       })
+
+      // Salva o paymentId do Payment Service no ClientPackage para lookup futuro.
       await prisma.clientPackage.update({
         where: { id: clientPackage.id },
-        data: { paymentId: payment.id },
+        data: { paymentId: pix.paymentId },
       })
 
       return NextResponse.json(
         {
           success: true,
-          paymentId: payment.id,
-          pixCode: pix.qrCode,
-          pixQrCode: pix.qrCodeBase64,
+          paymentId: pix.paymentId,
+          pixCode: pix.pixCode,
+          pixQrCode: pix.pixQrCode,
           amount: Number(pkg.price),
           expiresAt: expiresAt.toISOString(),
         },
         { status: 201 }
       )
     } catch (err) {
-      console.error("[PKG buy] PIX:", err)
+      console.error("[PKG buy] PIX via Payment Service:", err)
       await prisma.clientPackage
         .update({ where: { id: clientPackage.id }, data: { status: "CANCELLED" } })
         .catch(console.error)

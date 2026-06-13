@@ -2,8 +2,10 @@ import { NextResponse } from "next/server"
 import { createHmac, timingSafeEqual } from "crypto"
 import { prisma } from "@/lib/prisma"
 import { NotifStatus } from "@prisma/client"
-import { refundDepositForCancellation } from "@/lib/payment-reconcile"
-import { sendWhatsAppText, sendBarberCancellation } from "@/lib/notifications"
+import { refundDepositForCancellation } from "@/lib/payment-client"
+import { sendWhatsAppText } from "@/lib/notifications"
+import { publishEvent } from "@/lib/events"
+import { toAppointmentPayload } from "@/lib/event-mappers"
 
 /**
  * Webhook do WhatsApp Cloud API (Meta).
@@ -193,8 +195,19 @@ async function handleButtonReply(from: string, payload: string): Promise<void> {
       cancellationReason: "Cancelado pelo cliente (WhatsApp)",
     },
   })
-  const refund = await refundDepositForCancellation(appt.id).catch(() => "NONE" as const)
-  sendBarberCancellation(appt).catch(() => {})
+  const refund = await refundDepositForCancellation({
+    appointmentId: appt.id,
+    scheduledAt: appt.scheduledAt,
+    cancelRefundHours: appt.tenant.cancelRefundHours,
+  }).catch(() => "NONE" as const)
+  publishEvent({
+    type: "appointment.cancelled",
+    payload: {
+      ...toAppointmentPayload(appt),
+      cancellationReason: "Cancelado pelo cliente (WhatsApp)",
+      cancelledAt: new Date().toISOString(),
+    },
+  })
 
   const refundMsg =
     refund === "REFUNDED"

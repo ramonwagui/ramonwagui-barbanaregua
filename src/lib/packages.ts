@@ -144,10 +144,10 @@ export async function activateClientPackage(
       where: { id: cp.id },
       data: { status: "ACTIVE", expiresAt },
     })
-    await tx.payment.update({
-      where: { id: paymentId },
-      data: { status: "PAID", paidAt: new Date() },
-    })
+    // Payment pode estar no Payment Service (DB externo) — ignora se não existir localmente.
+    await tx.payment
+      .update({ where: { id: paymentId }, data: { status: "PAID", paidAt: new Date() } })
+      .catch(() => null)
   })
   return "PAID"
 }

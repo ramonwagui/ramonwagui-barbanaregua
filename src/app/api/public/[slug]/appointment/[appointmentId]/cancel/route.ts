@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { refundDepositForCancellation } from "@/lib/payment-reconcile"
-import { sendBookingCancellation, sendBarberCancellation } from "@/lib/notifications"
+import { refundDepositForCancellation } from "@/lib/payment-client"
+import { publishEvent } from "@/lib/events"
+import { toAppointmentPayload } from "@/lib/event-mappers"
 
 /**
  * Cancelamento self-service pelo cliente. Só funciona se o salão tiver
@@ -61,15 +62,24 @@ export async function POST(
     },
   })
 
-  // Política de estorno (estorna na conta do salão se aplicável).
-  const refund = await refundDepositForCancellation(appointmentId).catch((err) => {
+  // Política de estorno (estorna na conta do salão via Payment Service).
+  const refund = await refundDepositForCancellation({
+    appointmentId,
+    scheduledAt: appointment.scheduledAt,
+    cancelRefundHours: appointment.tenant.cancelRefundHours,
+  }).catch((err) => {
     console.error("[public cancel] estorno falhou:", err)
     return "NONE" as const
   })
 
-  // Avisa o cliente e o barbeiro (fire-and-forget).
-  sendBookingCancellation(appointment).catch(console.error)
-  sendBarberCancellation(appointment).catch(console.error)
+  publishEvent({
+    type: "appointment.cancelled",
+    payload: {
+      ...toAppointmentPayload(appointment),
+      cancellationReason: "Cancelado pelo cliente",
+      cancelledAt: new Date().toISOString(),
+    },
+  })
 
   return NextResponse.json({ success: true, refund })
 }
