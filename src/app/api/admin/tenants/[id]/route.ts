@@ -53,6 +53,8 @@ export async function DELETE(
     await tx.user.updateMany({ where: { tenantId: id }, data: { tenantId: null } })
 
     // 2. Registros filhos do agendamento
+    // clientPackage referencia payment (sem cascade) — deve vir antes de payment
+    await tx.clientPackage.deleteMany({ where: { tenantId: id } })
     await tx.notification.deleteMany({ where: { tenantId: id } })
     await tx.appointmentService.deleteMany({ where: { appointment: { tenantId: id } } })
     await tx.payment.deleteMany({ where: { tenantId: id } })
@@ -76,7 +78,6 @@ export async function DELETE(
     await tx.banner.deleteMany({ where: { tenantId: id } })
     await tx.mercadoPagoConnection.deleteMany({ where: { tenantId: id } })
     await tx.loyaltyCard.deleteMany({ where: { tenantId: id } })
-    await tx.clientPackage.deleteMany({ where: { tenantId: id } })
     await tx.servicePackage.deleteMany({ where: { tenantId: id } })
     await tx.subscription.deleteMany({ where: { tenantId: id } })
 
