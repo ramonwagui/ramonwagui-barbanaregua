@@ -101,7 +101,7 @@ export default function AdminTenantsClient({ tenants: initial }: { tenants: Tena
   }
 
   async function deleteTenant() {
-    if (!deleteModal || deleteConfirm !== deleteModal.name) return
+    if (!deleteModal || deleteConfirm.trim() !== deleteModal.name.trim()) return
     setIsDeleting(true)
     setDeleteError(null)
     try {
@@ -367,7 +367,7 @@ export default function AdminTenantsClient({ tenants: initial }: { tenants: Tena
               </button>
               <button
                 onClick={deleteTenant}
-                disabled={deleteConfirm !== deleteModal.name || isDeleting}
+                disabled={deleteConfirm.trim() !== deleteModal.name.trim() || isDeleting}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-4 h-4" />
