@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { createPortalSession } from "@/lib/billing-client"
+import { prisma } from "@/lib/prisma"
+import { createPortalSession, isBillingConfigured } from "@/lib/billing"
 
-/** Proxy para o Billing Service — abre Customer Portal do Stripe. */
 export async function POST() {
   const session = await auth()
   if (!session?.user?.tenantId) {
@@ -11,11 +11,24 @@ export async function POST() {
   if (session.user.role === "BARBER") {
     return NextResponse.json({ error: "Apenas o dono pode gerenciar a assinatura" }, { status: 403 })
   }
-
-  const result = await createPortalSession(session.user.tenantId)
-
-  if (!result) {
-    return NextResponse.json({ error: "Não foi possível abrir o portal." }, { status: 503 })
+  if (!isBillingConfigured()) {
+    return NextResponse.json({ error: "Cobrança indisponível no momento." }, { status: 503 })
   }
-  return NextResponse.json({ url: result.url })
+
+  const sub = await prisma.subscription.findUnique({
+    where: { tenantId: session.user.tenantId },
+    select: { stripeCustomerId: true },
+  })
+
+  if (!sub?.stripeCustomerId) {
+    return NextResponse.json({ error: "Sem customer Stripe vinculado." }, { status: 400 })
+  }
+
+  try {
+    const portalSession = await createPortalSession(sub.stripeCustomerId)
+    return NextResponse.json({ url: portalSession.url })
+  } catch (err) {
+    console.error("[billing/portal]", err)
+    return NextResponse.json({ error: "Não foi possível abrir o portal." }, { status: 500 })
+  }
 }
