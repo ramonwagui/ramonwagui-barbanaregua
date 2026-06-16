@@ -30,7 +30,6 @@ type PlanModalState = {
   trialEndsAt: string
 }
 
-const PLAN_LABELS: Record<string, string> = { BASIC: "Basic — R$ 99/mês", PRO: "Pro — R$ 199/mês", PREMIUM: "Premium — R$ 399/mês" }
 const PLAN_BADGE: Record<string, string> = { BASIC: "Basic", PRO: "Pro", PREMIUM: "Premium" }
 const PLAN_COLORS: Record<string, string> = { BASIC: "#60a5fa", PRO: "#f59e0b", PREMIUM: "#c084fc" }
 
@@ -49,7 +48,24 @@ function toInputDate(date: string | null | undefined): string {
   return format(new Date(date), "yyyy-MM-dd")
 }
 
-export default function AdminTenantsClient({ tenants: initial }: { tenants: Tenant[] }) {
+type PlanPrices = { BASIC: number; PRO: number; PREMIUM: number }
+
+export default function AdminTenantsClient({
+  tenants: initial,
+  planPrices,
+}: {
+  tenants: Tenant[]
+  planPrices: PlanPrices
+}) {
+  // Rótulo do plano com o preço real (em centavos) vindo do painel de configuração.
+  const fmtBRL = (cents: number) =>
+    (cents / 100).toLocaleString("pt-BR", { minimumFractionDigits: cents % 100 === 0 ? 0 : 2 })
+  const PLAN_LABELS: Record<string, string> = {
+    BASIC: `Basic — R$ ${fmtBRL(planPrices.BASIC)}/mês`,
+    PRO: `Pro — R$ ${fmtBRL(planPrices.PRO)}/mês`,
+    PREMIUM: `Premium — R$ ${fmtBRL(planPrices.PREMIUM)}/mês`,
+  }
+
   const [tenants, setTenants] = useState(initial)
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState("")

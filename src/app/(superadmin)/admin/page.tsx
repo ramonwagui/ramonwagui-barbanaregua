@@ -14,7 +14,7 @@ export default async function AdminPage() {
 
   const monthStart = startOfMonth(new Date())
 
-  const [tenants, totalUsers, monthAppointments] = await Promise.all([
+  const [tenants, totalUsers, monthAppointments, config] = await Promise.all([
     prisma.tenant.findMany({
       orderBy: { createdAt: "desc" },
       include: {
@@ -32,7 +32,18 @@ export default async function AdminPage() {
     prisma.appointment.count({
       where: { scheduledAt: { gte: monthStart }, status: "COMPLETED" },
     }),
+    prisma.globalConfig.findUnique({
+      where: { id: "singleton" },
+      select: { planPriceBasic: true, planPricePro: true, planPricePremium: true },
+    }),
   ])
+
+  // Preços (em centavos) exibidos no modal de plano — DB tem prioridade sobre o padrão.
+  const planPrices = {
+    BASIC: config?.planPriceBasic ?? 9900,
+    PRO: config?.planPricePro ?? 19900,
+    PREMIUM: config?.planPricePremium ?? 39900,
+  }
 
   const active = tenants.filter((t) => t.isActive).length
   const inactive = tenants.length - active
@@ -90,6 +101,7 @@ export default async function AdminPage() {
 
       {/* Tenant table */}
       <AdminTenantsClient
+        planPrices={planPrices}
         tenants={tenants.map((t) => ({
           id: t.id,
           name: t.name,
