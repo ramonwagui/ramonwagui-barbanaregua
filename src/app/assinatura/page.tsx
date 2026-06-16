@@ -52,18 +52,34 @@ export default async function AssinaturaPage({
   if (session.user.role === "SUPER_ADMIN") redirect("/admin")
   if (!session.user.tenantId) redirect("/onboarding")
 
-  // Retorno do Stripe Checkout: sincroniza a subscription diretamente antes de
-  // consultar o banco, evitando a condição de corrida com o webhook.
-  if (sessionId && isBillingConfigured()) {
+  // Retorno do Stripe Checkout: sincroniza antes de consultar o banco para
+  // evitar a condição de corrida com o webhook assíncrono do Stripe.
+  if (sp.status === "success" && isBillingConfigured()) {
     try {
-      const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId)
-      if (checkoutSession.subscription) {
-        const subId =
-          typeof checkoutSession.subscription === "string"
-            ? checkoutSession.subscription
-            : checkoutSession.subscription.id
-        const stripeSub = await stripe.subscriptions.retrieve(subId)
-        await syncStripeSubscription(stripeSub)
+      if (sessionId) {
+        // Caminho ideal: session_id na URL (checkout feito após o deploy atual)
+        const cs = await stripe.checkout.sessions.retrieve(sessionId)
+        if (cs.subscription) {
+          const subId = typeof cs.subscription === "string" ? cs.subscription : cs.subscription.id
+          await syncStripeSubscription(await stripe.subscriptions.retrieve(subId))
+        }
+      } else {
+        // Fallback: checkout antigo (sem session_id). Tenta pelo subscriptionId ou customerId do banco.
+        const existing = await prisma.subscription.findUnique({
+          where: { tenantId: session.user.tenantId! },
+          select: { stripeSubscriptionId: true, stripeCustomerId: true },
+        })
+        if (existing?.stripeSubscriptionId) {
+          const stripeSub = await stripe.subscriptions.retrieve(existing.stripeSubscriptionId)
+          await syncStripeSubscription(stripeSub)
+        } else if (existing?.stripeCustomerId) {
+          const list = await stripe.subscriptions.list({
+            customer: existing.stripeCustomerId,
+            status: "active",
+            limit: 1,
+          })
+          if (list.data[0]) await syncStripeSubscription(list.data[0])
+        }
       }
     } catch (e) {
       console.error("[assinatura] Falha ao sincronizar após checkout:", e)
