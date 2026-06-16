@@ -70,14 +70,14 @@ export async function createCheckoutSession(opts: {
   return stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: [{ price, quantity: 1 }],
-    success_url: `${baseUrl()}/assinatura?status=success`,
+    success_url: `${baseUrl()}/assinatura?status=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${baseUrl()}/assinatura?status=cancel`,
     ...(opts.customerId
       ? { customer: opts.customerId }
       : { customer_email: opts.email }),
     client_reference_id: opts.tenantId,
-    metadata: { tenantId: opts.tenantId },
-    subscription_data: { metadata: { tenantId: opts.tenantId } },
+    metadata: { tenantId: opts.tenantId, plan: opts.plan },
+    subscription_data: { metadata: { tenantId: opts.tenantId, plan: opts.plan } },
     allow_promotion_codes: true,
   })
 }
@@ -93,7 +93,8 @@ export async function createPortalSession(customerId: string): Promise<Stripe.Bi
 export async function syncStripeSubscription(sub: Stripe.Subscription): Promise<void> {
   const tenantId = sub.metadata?.tenantId
   const priceId = sub.items.data[0]?.price?.id ?? null
-  const plan = planForPriceId(priceId)
+  // planForPriceId consulta env vars; fallback no metadata.plan (para preços configurados via DB)
+  const plan = planForPriceId(priceId) ?? (sub.metadata?.plan as PlanTier | null) ?? null
   const periodEnd = (sub as unknown as { current_period_end?: number }).current_period_end
 
   const data = {

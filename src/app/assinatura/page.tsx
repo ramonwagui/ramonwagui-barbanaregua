@@ -6,7 +6,8 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { PlanTier } from "@prisma/client"
 import { PLAN_PRICES, PLAN_LIMITS, PLAN_LABELS } from "@/lib/plans"
-import { hasActiveSubscription } from "@/lib/billing"
+import { hasActiveSubscription, syncStripeSubscription, isBillingConfigured } from "@/lib/billing"
+import { stripe } from "@/lib/stripe"
 import AssinaturaClient from "./assinatura-client"
 import { Logo } from "@/components/logo"
 
@@ -38,11 +39,36 @@ function planFeatures(tier: PlanTier): string[] {
   return out
 }
 
-export default async function AssinaturaPage() {
+export default async function AssinaturaPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const sp = await searchParams
+  const sessionId = typeof sp.session_id === "string" ? sp.session_id : undefined
+
   const session = await auth()
   if (!session?.user) redirect("/login")
   if (session.user.role === "SUPER_ADMIN") redirect("/admin")
   if (!session.user.tenantId) redirect("/onboarding")
+
+  // Retorno do Stripe Checkout: sincroniza a subscription diretamente antes de
+  // consultar o banco, evitando a condição de corrida com o webhook.
+  if (sessionId && isBillingConfigured()) {
+    try {
+      const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId)
+      if (checkoutSession.subscription) {
+        const subId =
+          typeof checkoutSession.subscription === "string"
+            ? checkoutSession.subscription
+            : checkoutSession.subscription.id
+        const stripeSub = await stripe.subscriptions.retrieve(subId)
+        await syncStripeSubscription(stripeSub)
+      }
+    } catch (e) {
+      console.error("[assinatura] Falha ao sincronizar após checkout:", e)
+    }
+  }
 
   const isOwner = session.user.role !== "BARBER"
   const [sub, config] = await Promise.all([
